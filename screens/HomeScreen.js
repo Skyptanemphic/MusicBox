@@ -9,72 +9,69 @@ import {
   TextInput,
   ActivityIndicator,
   Dimensions,
-  Button,
   ScrollView,
+  Button,
+  SafeAreaView,
+  StatusBar,
+  Platform,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const { width: screenWidth } = Dimensions.get("window");
 
 export default function HomeScreen({ navigation }) {
-  const [mostListened, setMostListened] = useState([]);
+  const [mostListenedSongs, setMostListenedSongs] = useState([]);
+  const [mostListenedAlbums, setMostListenedAlbums] = useState([]);
+  const [mostListenedArtists, setMostListenedArtists] = useState([]);
   const [newReleases, setNewReleases] = useState([]);
-  const [songs, setSongs] = useState([]);
+  const [recentlyRated, setRecentlyRated] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [searchResults, setSearchResults] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState(null);
-  const [ratings, setRatings] = useState({});
 
   const cardWidth = Math.round(screenWidth * 0.4);
   const cardHeight = Math.round(cardWidth * 1.5);
 
   useEffect(() => {
     fetchCharts();
-    loadRatings();
+    loadRecentlyRated();
   }, []);
-
-  const loadRatings = async () => {
-    try {
-      const stored = await AsyncStorage.getItem("songRatings");
-      if (stored) setRatings(JSON.parse(stored));
-    } catch (err) {
-      console.error("Failed to load ratings:", err);
-    }
-  };
-
-  const saveRating = async (songId, value) => {
-    try {
-      const newRatings = { ...ratings, [songId]: value };
-      setRatings(newRatings);
-      await AsyncStorage.setItem("songRatings", JSON.stringify(newRatings));
-    } catch (err) {
-      console.error("Failed to save rating:", err);
-    }
-  };
 
   const fetchCharts = async () => {
     setLoading(true);
     setError(null);
     try {
-      const [mostRes, songsRes, newRes] = await Promise.all([
-        fetch("https://api.deezer.com/chart/0/albums"),
+      const [tracksRes, albumsRes, artistsRes, releasesRes] = await Promise.all([
         fetch("https://api.deezer.com/chart/0/tracks"),
+        fetch("https://api.deezer.com/chart/0/albums"),
+        fetch("https://api.deezer.com/chart/0/artists"),
         fetch("https://api.deezer.com/editorial/0/releases"),
       ]);
-      const mostData = await mostRes.json();
-      const songsData = await songsRes.json();
-      const newData = await newRes.json();
+      const tracksData = await tracksRes.json();
+      const albumsData = await albumsRes.json();
+      const artistsData = await artistsRes.json();
+      const releasesData = await releasesRes.json();
 
-      setMostListened(mostData.data || []);
-      setSongs(songsData.data || []);
-      setNewReleases(newData.data || []);
+      setMostListenedSongs(tracksData.data || []);
+      setMostListenedAlbums(albumsData.data || []);
+      setMostListenedArtists(artistsData.data || []);
+      setNewReleases(releasesData.data || []);
     } catch (err) {
-      console.error("Error fetching charts:", err);
-      setError("Failed to fetch charts. Please try again later.");
+      console.error(err);
+      setError("Failed to fetch charts.");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadRecentlyRated = async () => {
+    try {
+      const stored = await AsyncStorage.getItem("recentRatings");
+      if (stored) setRecentlyRated(JSON.parse(stored).slice(-20).reverse());
+    } catch (err) {
+      console.error("Failed to load recently rated:", err);
     }
   };
 
@@ -90,8 +87,8 @@ export default function HomeScreen({ navigation }) {
       const data = await res.json();
       setSearchResults(data.data || []);
     } catch (err) {
-      console.error("Error searching Deezer:", err);
-      setError("Failed to fetch search results. Please try again.");
+      console.error(err);
+      setError("Failed to fetch search results.");
     } finally {
       setLoading(false);
     }
@@ -103,20 +100,22 @@ export default function HomeScreen({ navigation }) {
     setSearchResults([]);
   };
 
-  const renderItem = (item, isSong = false) => {
-    const title = item.title;
-    const artist = isSong ? item.artist?.name : item.artist?.name || "Unknown Artist";
-    const artwork = isSong ? item.album?.cover_medium : item.cover_medium;
+  const renderItem = (item, isSong = false, isArtist = false) => {
+    const title = isArtist ? item.name : item.title;
+    const artist = isArtist ? "" : item.artist?.name || "Unknown Artist";
+    const artwork = isArtist
+      ? item.picture_medium
+      : isSong
+      ? item.album?.cover_medium
+      : item.cover_medium;
 
     return (
       <TouchableOpacity
         style={[styles.card, { width: cardWidth, height: cardHeight }]}
         onPress={() => {
-          if (isSong) {
-            navigation.navigate("Song", { songId: item.id });
-          } else {
-            navigation.navigate("Album", { albumId: item.id, albumName: item.title });
-          }
+          if (isSong) navigation.navigate("Song", { songId: item.id });
+          else if (isArtist) navigation.navigate("Artist", { artistId: item.id });
+          else navigation.navigate("Album", { albumId: item.id });
         }}
       >
         <Image
@@ -129,147 +128,147 @@ export default function HomeScreen({ navigation }) {
           }}
         />
         <View style={styles.textContainer}>
-          <Text style={styles.title} numberOfLines={2} ellipsizeMode="tail">
+          <Text style={styles.title} numberOfLines={2}>
             {title}
           </Text>
-          <Text style={styles.artist} numberOfLines={1} ellipsizeMode="tail">
-            {artist}
-          </Text>
+          {artist ? <Text style={styles.artist} numberOfLines={1}>{artist}</Text> : null}
         </View>
-        {isSong && (
-          <View style={styles.ratingRow}>
-            {[1, 2, 3, 4, 5].map((star) => (
-              <TouchableOpacity key={`${item.id}-${star}`} onPress={() => saveRating(item.id, star)}>
-                <Text style={{ color: ratings[item.id] >= star ? "#1db954" : "#888", fontSize: 18 }}>★</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        )}
       </TouchableOpacity>
     );
   };
 
-  if (loading) {
-    return <ActivityIndicator size="large" style={{ flex: 1, justifyContent: "center" }} />;
-  }
-
-  const listProps = {
-    horizontal: true,
-    showsHorizontalScrollIndicator: false,
-    contentContainerStyle: { paddingHorizontal: 8, paddingBottom: 16 },
-  };
+  if (loading)
+    return <ActivityIndicator size="large" style={{ flex: 1 }} color="#1db954" />;
 
   return (
-    <ScrollView style={styles.container}>
-      <TextInput
-        style={styles.searchInput}
-        placeholder="Search artist, album, or song"
-        placeholderTextColor="#aaa"
-        value={searchTerm}
-        onChangeText={setSearchTerm}
-        onSubmitEditing={handleSearch}
-        returnKeyType="search"
-      />
+    <SafeAreaView style={styles.safeArea}>
+      <StatusBar barStyle="light-content" backgroundColor="#121212" />
 
-      {error && <Text style={{ color: "red", marginVertical: 8 }}>{error}</Text>}
+      {/* Minimal Header: only Search Bar */}
+      <View
+        style={{
+          paddingTop: Platform.OS === "android" ? StatusBar.currentHeight : 0,
+          paddingHorizontal: 16,
+          backgroundColor: "#121212",
+          zIndex: 1,
+        }}
+      >
+        <TextInput
+          style={styles.searchInput}
+          placeholder="Search artist, album, or song"
+          placeholderTextColor="#aaa"
+          value={searchTerm}
+          onChangeText={setSearchTerm}
+          onSubmitEditing={handleSearch}
+          returnKeyType="search"
+        />
+      </View>
 
-      {searching ? (
-        <>
-          <Text style={styles.section}>Search Results</Text>
-          <FlatList
-            {...listProps}
-            data={searchResults}
-            renderItem={({ item }) => renderItem(item, item.type === "track")}
-            keyExtractor={(item) => `${item.type}-${item.id}`}
-          />
-          <Button title="Go Back" onPress={handleGoBack} color="#1db954" />
-        </>
-      ) : (
-        <>
-          <View style={styles.sectionContainer}>
-            <Text style={styles.section}>Most Listened This Week</Text>
+      <ScrollView style={styles.container}>
+        {error && <Text style={{ color: "red", margin: 8 }}>{error}</Text>}
+
+        {searching ? (
+          <>
+            <Text style={styles.section}>Search Results</Text>
             <FlatList
-              {...listProps}
-              data={mostListened}
-              renderItem={({ item }) => renderItem(item, false)}
-              keyExtractor={(item) => `most-${item.id}`}
+              horizontal
+              nestedScrollEnabled
+              data={searchResults}
+              renderItem={({ item }) =>
+                renderItem(item, item.type === "track", item.type === "artist")
+              }
+              keyExtractor={(item) => `${item.type}-${item.id}`}
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ padding: 8 }}
             />
-          </View>
-
-          <View style={styles.sectionContainer}>
-            <Text style={styles.section}>Trending Songs</Text>
+            <Button title="Go Back" onPress={handleGoBack} color="#1db954" />
+          </>
+        ) : (
+          <>
+            <Text style={styles.section}>Most Listened Songs</Text>
             <FlatList
-              {...listProps}
-              data={songs}
+              horizontal
+              nestedScrollEnabled
+              data={mostListenedSongs}
               renderItem={({ item }) => renderItem(item, true)}
               keyExtractor={(item) => `song-${item.id}`}
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ padding: 8 }}
             />
-          </View>
 
-          <View style={styles.sectionContainer}>
+            <Text style={styles.section}>Most Listened Albums</Text>
+            <FlatList
+              horizontal
+              nestedScrollEnabled
+              data={mostListenedAlbums}
+              renderItem={({ item }) => renderItem(item, false)}
+              keyExtractor={(item) => `album-${item.id}`}
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ padding: 8 }}
+            />
+
+            <Text style={styles.section}>Most Listened Artists</Text>
+            <FlatList
+              horizontal
+              nestedScrollEnabled
+              data={mostListenedArtists}
+              renderItem={({ item }) => renderItem(item, false, true)}
+              keyExtractor={(item) => `artist-${item.id}`}
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ padding: 8 }}
+            />
+
             <Text style={styles.section}>New Releases</Text>
             <FlatList
-              {...listProps}
+              horizontal
+              nestedScrollEnabled
               data={newReleases}
               renderItem={({ item }) => renderItem(item, false)}
-              keyExtractor={(item) => `new-${item.id}`}
+              keyExtractor={(item) => `release-${item.id}`}
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ padding: 8 }}
             />
-          </View>
-        </>
-      )}
-    </ScrollView>
+
+            {recentlyRated.length > 0 && (
+              <>
+                <Text style={styles.section}>Recently Rated</Text>
+                <FlatList
+                  horizontal
+                  nestedScrollEnabled
+                  data={recentlyRated}
+                  renderItem={({ item }) => renderItem(item, true)}
+                  keyExtractor={({ id }) => `recent-${id}`}
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={{ padding: 8 }}
+                />
+              </>
+            )}
+          </>
+        )}
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#000",
-  },
+  safeArea: { flex: 1, backgroundColor: "#121212" },
+  container: { flex: 1, backgroundColor: "#121212" },
   searchInput: {
     backgroundColor: "#1e1e1e",
     color: "#fff",
     borderRadius: 8,
     padding: 10,
     marginBottom: 16,
-    marginHorizontal: 8,
   },
-  section: {
-    color: "#fff",
-    fontSize: 20,
-    fontWeight: "bold",
-    marginBottom: 12,
-    marginLeft: 8,
-  },
-  sectionContainer: {
-    marginBottom: 32, // more vertical spacing between sections
-  },
+  section: { color: "#fff", fontSize: 20, fontWeight: "bold", marginLeft: 8, marginVertical: 8 },
   card: {
     marginRight: 12,
     backgroundColor: "#363333ff",
     borderRadius: 8,
     padding: 8,
     alignItems: "center",
-    justifyContent: "space-between",
   },
-  textContainer: {
-    width: "100%",
-    alignItems: "center",
-  },
-  title: {
-    color: "#fff",
-    fontWeight: "bold",
-    textAlign: "center",
-    flexShrink: 1,
-  },
-  artist: {
-    color: "#aaa",
-    fontSize: 12,
-    textAlign: "center",
-    flexShrink: 1,
-  },
-  ratingRow: {
-    flexDirection: "row",
-    marginTop: 4,
-  },
+  textContainer: { width: "100%", alignItems: "center" },
+  title: { color: "#fff", fontWeight: "bold", textAlign: "center" },
+  artist: { color: "#aaa", fontSize: 12, textAlign: "center" },
 });

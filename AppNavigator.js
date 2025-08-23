@@ -1,35 +1,27 @@
 import React from "react";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
-import { NavigationContainer } from "@react-navigation/native";
 
+// Screens
 import HomeScreen from "./screens/HomeScreen";
-import AlbumScreen from "./screens/AlbumScreen";
 import SongScreen from "./screens/SongScreen";
+import AlbumScreen from "./screens/AlbumScreen";
+import ArtistPage from "./screens/ArtistScreen";
 
 const Stack = createNativeStackNavigator();
 
 export default function AppNavigator() {
   return (
-    <NavigationContainer>
-      <Stack.Navigator
-        initialRouteName="Home"
-        screenOptions={{
-          headerStyle: { backgroundColor: "#121212" },
-          headerTintColor: "#fff",
-        }}
-      >
-        <Stack.Screen name="Home" component={HomeScreen} />
-        <Stack.Screen
-          name="AlbumScreen"
-          component={AlbumScreen}
-          options={({ route }) => ({ title: route.params.albumName || "Album" })}
-        />
-        <Stack.Screen
-          name="SongScreen"
-          component={SongScreen}
-          options={{ title: "Song Info" }}
-        />
-      </Stack.Navigator>
-    </NavigationContainer>
+    <Stack.Navigator
+      initialRouteName="Home"
+      screenOptions={{
+        headerShown: false, 
+        contentStyle: { backgroundColor: "#121212" },
+      }}
+    >
+      <Stack.Screen name="Home" component={HomeScreen} />
+      <Stack.Screen name="Album" component={AlbumScreen} />
+      <Stack.Screen name="Song" component={SongScreen} />
+      <Stack.Screen name="Artist" component={ArtistPage} />
+    </Stack.Navigator>
   );
 }
