@@ -1,7 +1,7 @@
-// useSpotifyAuth.js
 import * as AuthSession from 'expo-auth-session';
 import * as WebBrowser from 'expo-web-browser';
 import { useState, useEffect } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -15,7 +15,6 @@ const discovery = {
 
 export default function useSpotifyAuth() {
   const [token, setToken] = useState(null);
-
   const redirectUri = AuthSession.makeRedirectUri({ useProxy: true });
 
   const [request, response, promptAsync] = AuthSession.useAuthRequest(
@@ -23,12 +22,21 @@ export default function useSpotifyAuth() {
       clientId: CLIENT_ID,
       scopes: SCOPES,
       redirectUri,
-      responseType: AuthSession.ResponseType.Code, // Authorization Code Flow
+      responseType: AuthSession.ResponseType.Code,
       usePKCE: true,
       extraParams: { show_dialog: 'true' },
     },
     discovery
   );
+
+  useEffect(() => {
+    // Load token from AsyncStorage on mount
+    const loadToken = async () => {
+      const storedToken = await AsyncStorage.getItem('spotifyToken');
+      if (storedToken) setToken(storedToken);
+    };
+    loadToken();
+  }, []);
 
   useEffect(() => {
     if (response?.type === 'success' && response.params.code) {
@@ -58,18 +66,15 @@ export default function useSpotifyAuth() {
       const data = await res.json();
       if (data.access_token) {
         setToken(data.access_token);
+        await AsyncStorage.setItem('spotifyToken', data.access_token); // persist token
       }
     } catch (err) {
-      // You can handle errors here if needed
+      console.error('Token exchange failed', err);
     }
   };
 
   return {
     token,
-    login: () => {
-      if (request) {
-        promptAsync({ useProxy: true, showInRecents: true });
-      }
-    },
+    login: () => request && promptAsync({ useProxy: true, showInRecents: true }),
   };
 }

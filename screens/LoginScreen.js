@@ -1,16 +1,20 @@
 import React, { useEffect } from 'react';
 import { SafeAreaView, Text, Button, StatusBar } from 'react-native';
 import useSpotifyAuth from '../useSpotifyAuth';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function LoginScreen({ navigation }) {
   const { token, login } = useSpotifyAuth();
 
   useEffect(() => {
     if (token) {
-      // Pass token to the nested HomeMain screen inside HomeStack
+      // Save token (redundant but safe)
+      AsyncStorage.setItem('spotifyToken', token);
+
+      // Navigate to Home stack and pass token
       navigation.replace('HomeStack', {
-        screen: 'HomeMain', // nested screen name
-        params: { token },   // pass token here
+        screen: 'HomeMain',
+        params: { token },
       });
     }
   }, [token]);
