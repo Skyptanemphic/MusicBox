@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback, useLayoutEffect } from "react";
 import { 
   View, Text, ScrollView, TouchableOpacity, ActivityIndicator, 
-  StyleSheet, Pressable, Image, Linking 
+  StyleSheet, Linking, Pressable, Image 
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect } from "@react-navigation/native";
@@ -19,19 +19,14 @@ export default function SongScreen({ route, navigation }) {
       try {
         const storedToken = await AsyncStorage.getItem("spotifyToken");
         if (storedToken) setToken(storedToken);
-      } catch (err) {
-        console.log("Error loading token:", err);
-      }
+      } catch (err) { console.log("Error loading token:", err); }
     } else {
       setToken(routeToken);
     }
   };
 
   const fetchSong = async (accessToken) => {
-    if (!songId || !accessToken) {
-      setLoading(false);
-      return;
-    }
+    if (!songId || !accessToken) { setLoading(false); return; }
     setLoading(true);
     try {
       const res = await fetch(`https://api.spotify.com/v1/tracks/${songId}`, {
@@ -41,30 +36,20 @@ export default function SongScreen({ route, navigation }) {
       if (!data.error) {
         const safeData = {
           ...data,
-          album: {
-            ...data.album,
-            images: Array.isArray(data.album?.images) ? data.album.images : [],
-          },
+          album: { ...data.album, images: Array.isArray(data.album?.images) ? data.album.images : [] },
           artists: Array.isArray(data.artists) ? data.artists : [],
         };
         setSong(safeData);
-      } else {
-        setSong(null);
-      }
-    } catch (err) {
-      setSong(null);
-    } finally {
-      setLoading(false);
-    }
+      } else setSong(null);
+    } catch (err) { setSong(null); } 
+    finally { setLoading(false); }
   };
 
   const loadRatings = async () => {
     try {
       const stored = await AsyncStorage.getItem("songRatings");
       if (stored) setRatings(JSON.parse(stored));
-    } catch (err) {
-      console.log("Error loading ratings:", err);
-    }
+    } catch (err) { console.log("Error loading ratings:", err); }
   };
 
   const saveRating = async (songId, value) => {
@@ -72,9 +57,7 @@ export default function SongScreen({ route, navigation }) {
       const newRatings = { ...ratings, [songId]: value };
       setRatings(newRatings);
       await AsyncStorage.setItem("songRatings", JSON.stringify(newRatings));
-    } catch (err) {
-      console.log("Error saving rating:", err);
-    }
+    } catch (err) { console.log("Error saving rating:", err); }
   };
 
   const removeRating = async () => {
@@ -84,15 +67,11 @@ export default function SongScreen({ route, navigation }) {
       delete newRatings[song.id];
       setRatings(newRatings);
       await AsyncStorage.setItem("songRatings", JSON.stringify(newRatings));
-    } catch (err) {
-      console.log("Error removing rating:", err);
-    }
+    } catch (err) { console.log("Error removing rating:", err); }
   };
 
   useEffect(() => { loadToken(); }, []);
-  useEffect(() => {
-    if (token) fetchSong(token);
-  }, [songId, token]);
+  useEffect(() => { if (token) fetchSong(token); }, [songId, token]);
   useFocusEffect(useCallback(() => { loadRatings(); }, []));
 
   useLayoutEffect(() => {
@@ -112,8 +91,19 @@ export default function SongScreen({ route, navigation }) {
   const renderStars = (rating, onPress) => {
     const stars = [];
     for (let i = 1; i <= 5; i++) {
-      let iconName = rating >= i ? "star" : rating >= i - 0.5 ? "star-half-alt" : "star";
-      const color = rating >= i - 0.5 ? "#1db954" : "#888";
+      let iconName;
+      let solid = true;
+      if (rating >= i) {
+        iconName = "star";
+        solid = true;
+      } else if (rating >= i - 0.5) {
+        iconName = "star-half-alt";
+        solid = true;
+      } else {
+        iconName = "star";
+        solid = false;
+      }
+
       stars.push(
         <Pressable
           key={i}
@@ -124,12 +114,13 @@ export default function SongScreen({ route, navigation }) {
             onPress(newValue);
           }}
         >
-          <Icon name={iconName} size={32} solid={iconName === "star"} color={color} />
+          <Icon name={iconName} size={32} solid={solid} color={solid ? "#1db954" : "#888"} />
         </Pressable>
       );
     }
     return <View style={{ flexDirection: "row" }}>{stars}</View>;
   };
+
 
   if (!token) {
     return (
@@ -154,7 +145,7 @@ export default function SongScreen({ route, navigation }) {
 
   return (
     <ScrollView style={styles.container}>
-      {/* Top row: cover on left, info on right */}
+      {/* Top row: cover left, info right */}
       <View style={styles.topRow}>
         <Image 
           source={{ uri: song.album?.images?.[1]?.url || song.album?.images?.[0]?.url }} 
@@ -162,8 +153,12 @@ export default function SongScreen({ route, navigation }) {
         />
         <View style={styles.songInfo}>
           <Text style={styles.title}>{song.name}</Text>
-          <Text style={styles.artist}>{song.artists?.map(a => a.name).join(", ") || "Unknown Artist"}</Text>
-          <Text style={styles.album}>Album: {song.album?.name || "Unknown Album"}</Text>
+          <Pressable onPress={() => navigation.navigate("Artist", { artistId: song.artists?.[0]?.id, token })}>
+            <Text style={styles.artist}>{song.artists?.map(a => a.name).join(", ") || "Unknown Artist"}</Text>
+          </Pressable>
+          <Pressable onPress={() => navigation.navigate("Album", { albumId: song.album?.id, token })}>
+            <Text style={styles.album}>Album: {song.album?.name || "Unknown Album"}</Text>
+          </Pressable>
           <Text style={styles.detail}>
             Duration: {Math.floor((song.duration_ms || 0)/60000)}:
             {Math.floor(((song.duration_ms || 0)%60000)/1000).toString().padStart(2,"0")} min
@@ -173,8 +168,8 @@ export default function SongScreen({ route, navigation }) {
         </View>
       </View>
 
-      {/* Buttons side by side */}
-      <View style={styles.buttonRow}>
+      {/* Spotify button and rating side by side */}
+      <View style={styles.bottomRow}>
         <TouchableOpacity 
           style={styles.spotifyButton} 
           onPress={() => Linking.openURL(song.external_urls?.spotify)}
@@ -183,21 +178,11 @@ export default function SongScreen({ route, navigation }) {
           <Text style={styles.buttonText}>Open in Spotify</Text>
         </TouchableOpacity>
 
-        {song.album?.id && (
-          <TouchableOpacity 
-            style={styles.albumButton} 
-            onPress={() => navigation.navigate("Album", { albumId: song.album.id, token })}
-          >
-            <Text style={styles.buttonText}>View Album</Text>
-          </TouchableOpacity>
-        )}
+        <View style={styles.starsContainer}>
+          {renderStars(rating, (value) => saveRating(song.id, value))}
+        </View>
       </View>
 
-      {/* Rating */}
-      <View style={styles.ratingRow}>
-        {renderStars(rating, (value) => saveRating(song.id, value))}
-      </View>
-      <Text style={styles.ratingText}>{rating > 0 ? `${rating.toFixed(1)} / 5` : "Not rated"}</Text>
     </ScrollView>
   );
 }
@@ -206,8 +191,8 @@ const styles = StyleSheet.create({
   container: { flex:1, backgroundColor:"#121212", padding:16 },
   topRow: { flexDirection:"row", marginBottom:16 },
   cover: { 
-    width:150, 
-    height:150, 
+    width:180, 
+    height:180, 
     borderRadius:12, 
     borderWidth:1, 
     borderColor:"#333", 
@@ -218,27 +203,24 @@ const styles = StyleSheet.create({
   },
   songInfo: { flex:1, marginLeft:16, justifyContent:"center" },
   title:{ color:"#fff", fontSize:22, fontWeight:"bold", marginBottom:4 },
-  artist:{ color:"#aaa", fontSize:16, marginBottom:2 },
-  album:{ color:"#ccc", fontSize:14, marginBottom:2 },
+  artist:{ color:"#1db954", fontSize:18, marginBottom:4 },
+  album:{ color:"#1db954", fontSize:16, marginBottom:4 },
   detail:{ color:"#ccc", fontSize:14, marginBottom:2 },
-  buttonRow:{ flexDirection:"row", justifyContent:"space-around", marginVertical:12 },
+  bottomRow:{ 
+    flexDirection:"row", 
+    justifyContent:"space-between", 
+    alignItems:"center", 
+    marginVertical:12,
+  },
   spotifyButton:{ 
     flexDirection:"row", 
     alignItems:"center", 
     backgroundColor:"#1db954", 
     paddingVertical:8, 
-    paddingHorizontal:16, 
-    borderRadius:8,
-  },
-  albumButton:{ 
-    flexDirection:"row", 
-    alignItems:"center", 
-    backgroundColor:"#1db954", 
-    paddingVertical:8, 
-    paddingHorizontal:16, 
-    borderRadius:8,
+    paddingHorizontal:12, 
+    borderRadius:8 
   },
   buttonText:{ color:"#fff", fontWeight:"bold", marginLeft:8 },
-  ratingRow:{ flexDirection:"row", justifyContent:"center", marginTop:12 },
+  starsContainer:{ flexDirection:"row", alignItems:"center" },
   ratingText:{ color:"#ccc", textAlign:"center", marginTop:4 },
 });

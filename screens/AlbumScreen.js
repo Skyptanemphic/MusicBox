@@ -21,7 +21,6 @@ export default function AlbumScreen({ route, navigation }) {
   const [ratings, setRatings] = useState({});
   const [token, setToken] = useState(routeToken || null);
 
-  // Load token from AsyncStorage if not passed
   const loadToken = async () => {
     if (!routeToken) {
       try {
@@ -33,23 +32,12 @@ export default function AlbumScreen({ route, navigation }) {
     }
   };
 
-  useEffect(() => {
-    const init = async () => {
-      await loadToken();
-    };
-    init();
-  }, []);
-
-  useEffect(() => {
-    if (token) fetchAlbum();
-  }, [token]);
-
+  useEffect(() => { loadToken(); }, []);
+  useEffect(() => { if (token) fetchAlbum(); }, [token]);
   useFocusEffect(useCallback(() => { loadRatings(); }, []));
 
-  // Fetch album from Spotify
   const fetchAlbum = async () => {
     if (!albumId || !token) return;
-
     setLoading(true);
     try {
       const res = await fetch(`https://api.spotify.com/v1/albums/${albumId}`, {
@@ -83,8 +71,19 @@ export default function AlbumScreen({ route, navigation }) {
   const renderStars = (rating, onPress) => {
     const stars = [];
     for (let i = 1; i <= 5; i++) {
-      const iconName = rating >= i ? "star" : rating >= i - 0.5 ? "star-half-alt" : "star";
-      const color = rating >= i - 0.5 ? "#1db954" : "#888";
+      let iconName;
+      let solid = true;
+
+      if (rating >= i) {
+        iconName = "star"; // full
+        solid = true;
+      } else if (rating >= i - 0.5) {
+        iconName = "star-half-alt"; // half
+        solid = true;
+      } else {
+        iconName = "star"; // empty outline
+        solid = false;
+      }
 
       stars.push(
         <Pressable
@@ -96,11 +95,11 @@ export default function AlbumScreen({ route, navigation }) {
             onPress(newValue);
           }}
         >
-          <Icon name={iconName} size={24} solid={iconName === "star"} color={color} />
+          <Icon name={iconName} size={24} solid={solid} color={solid ? "#1db954" : "#888"} />
         </Pressable>
       );
     }
-    return <View style={{ flexDirection: "row" }}>{stars}</View>;
+    return <View style={{ flexDirection: "row", alignItems: "center" }}>{stars}</View>;
   };
 
   const renderTrack = (item) => {
@@ -110,10 +109,14 @@ export default function AlbumScreen({ route, navigation }) {
         style={styles.songCard}
         onPress={() => navigation.navigate("Song", { songId: item.id, token })}
       >
-        <Text style={styles.songTitle}>{item.name}</Text>
-        <Text style={styles.songArtist}>{item.artists?.map(a => a.name).join(", ")}</Text>
-        <View style={styles.ratingRow}>
-          {renderStars(rating, (value) => saveRating(item.id, value))}
+        <View style={styles.trackRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.songTitle}>{item.name}</Text>
+            <Text style={styles.songArtist}>{item.artists?.map(a => a.name).join(", ")}</Text>
+          </View>
+          <View>
+            {renderStars(rating, (value) => saveRating(item.id, value))}
+          </View>
         </View>
       </TouchableOpacity>
     );
@@ -166,6 +169,7 @@ const styles = StyleSheet.create({
   genre: { color: "#ccc", fontSize: 14, textAlign: "center", marginBottom: 12 },
   section: { color: "#fff", fontSize: 20, fontWeight: "bold", marginTop: 20, marginBottom: 8 },
   songCard: { paddingVertical: 10, borderBottomColor: "#333", borderBottomWidth: 1 },
+  trackRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   songTitle: { color: "#fff", fontSize: 16 },
   songArtist: { color: "#aaa", fontSize: 14 },
   ratingRow: { flexDirection: "row", marginTop: 4 },

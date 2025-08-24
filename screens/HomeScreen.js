@@ -23,7 +23,7 @@ export default function HomeMainScreen({ navigation, route }) {
   const [topArtists, setTopArtists] = useState([]);
   const [newReleases, setNewReleases] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
-  const [searchResults, setSearchResults] = useState([]);
+  const [searchResults, setSearchResults] = useState({ tracks: [], albums: [], artists: [] });
   const [loading, setLoading] = useState(false);
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState(null);
@@ -80,12 +80,11 @@ export default function HomeMainScreen({ navigation, route }) {
         { headers: { Authorization: `Bearer ${token}` } }
       );
       const data = await res.json();
-      const results = [
-        ...(data.tracks?.items || []),
-        ...(data.albums?.items || []),
-        ...(data.artists?.items || []),
-      ];
-      setSearchResults(results);
+      setSearchResults({
+        tracks: data.tracks?.items || [],
+        albums: data.albums?.items || [],
+        artists: data.artists?.items || [],
+      });
     } catch (err) {
       console.error(err);
       setError('Failed to fetch search results.');
@@ -97,25 +96,24 @@ export default function HomeMainScreen({ navigation, route }) {
   const handleGoBack = () => {
     setSearching(false);
     setSearchTerm('');
-    setSearchResults([]);
+    setSearchResults({ tracks: [], albums: [], artists: [] });
   };
 
-  const renderItem = (item, isSong = false, isArtist = false) => {
-    const title = item.name || item.title;
-    const artist = isArtist ? '' : item.artists?.[0]?.name || 'Unknown Artist';
-    const artwork = isArtist
-      ? item.images?.[1]?.url || item.images?.[0]?.url
-      : isSong
-      ? item.album?.images?.[1]?.url || item.album?.images?.[0]?.url
-      : item.images?.[1]?.url || item.images?.[0]?.url;
+  const renderItem = (item, type) => {
+    const title = item.name;
+    const artistName = type === 'artist' ? '' : item.artists?.[0]?.name || 'Unknown Artist';
+    const artwork =
+      type === 'artist'
+        ? item.images?.[1]?.url || item.images?.[0]?.url
+        : item.images?.[0]?.url || item.album?.images?.[0]?.url;
 
     return (
       <TouchableOpacity
         style={[styles.card, { width: cardWidth, height: cardHeight }]}
         onPress={() => {
-          if (isSong) navigation.navigate('Song', { songId: item.id });
-          else if (isArtist) navigation.navigate('Artist', { artistId: item.id });
-          else navigation.navigate('Album', { albumId: item.id });
+          if (type === 'track') navigation.navigate('Song', { songId: item.id, token });
+          else if (type === 'artist') navigation.navigate('Artist', { artistId: item.id, token });
+          else navigation.navigate('Album', { albumId: item.id, token });
         }}
       >
         {artwork && (
@@ -133,7 +131,7 @@ export default function HomeMainScreen({ navigation, route }) {
           <Text style={styles.title} numberOfLines={2}>
             {title}
           </Text>
-          {artist ? <Text style={styles.artist} numberOfLines={1}>{artist}</Text> : null}
+          {artistName ? <Text style={styles.artist} numberOfLines={1}>{artistName}</Text> : null}
         </View>
       </TouchableOpacity>
     );
@@ -144,14 +142,14 @@ export default function HomeMainScreen({ navigation, route }) {
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="light-content" backgroundColor="#121212" />
-      <View
-        style={{
-          paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0,
-          paddingHorizontal: 16,
-          backgroundColor: '#121212',
-          zIndex: 1,
-        }}
-      >
+
+      {/* SEARCH BAR WITH GO BACK */}
+      <View style={styles.searchRow}>
+        {searching && (
+          <TouchableOpacity style={styles.goBackButton} onPress={handleGoBack}>
+            <Text style={styles.goBackText}>◀</Text>
+          </TouchableOpacity>
+        )}
         <TextInput
           style={styles.searchInput}
           placeholder="Search artist, album, or song"
@@ -162,22 +160,54 @@ export default function HomeMainScreen({ navigation, route }) {
           returnKeyType="search"
         />
       </View>
+
       <ScrollView style={styles.container}>
         {error && <Text style={{ color: 'red', margin: 8 }}>{error}</Text>}
 
         {searching ? (
           <>
-            <Text style={styles.section}>Search Results</Text>
-            <FlatList
-              horizontal
-              nestedScrollEnabled
-              data={searchResults}
-              renderItem={({ item }) => renderItem(item, item.type === 'track', item.type === 'artist')}
-              keyExtractor={(item) => `${item.type || 'item'}-${item.id}`}
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{ padding: 8 }}
-            />
-            <Button title="Go Back" onPress={handleGoBack} color="#1db954" />
+            {searchResults.tracks.length > 0 && (
+              <>
+                <Text style={styles.section}>Tracks</Text>
+                <FlatList
+                  horizontal
+                  nestedScrollEnabled
+                  data={searchResults.tracks}
+                  renderItem={({ item }) => renderItem(item, 'track')}
+                  keyExtractor={(item) => `track-${item.id}`}
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={{ padding: 8 }}
+                />
+              </>
+            )}
+            {searchResults.albums.length > 0 && (
+              <>
+                <Text style={styles.section}>Albums</Text>
+                <FlatList
+                  horizontal
+                  nestedScrollEnabled
+                  data={searchResults.albums}
+                  renderItem={({ item }) => renderItem(item, 'album')}
+                  keyExtractor={(item) => `album-${item.id}`}
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={{ padding: 8 }}
+                />
+              </>
+            )}
+            {searchResults.artists.length > 0 && (
+              <>
+                <Text style={styles.section}>Artists</Text>
+                <FlatList
+                  horizontal
+                  nestedScrollEnabled
+                  data={searchResults.artists}
+                  renderItem={({ item }) => renderItem(item, 'artist')}
+                  keyExtractor={(item) => `artist-${item.id}`}
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={{ padding: 8 }}
+                />
+              </>
+            )}
           </>
         ) : (
           <>
@@ -186,7 +216,7 @@ export default function HomeMainScreen({ navigation, route }) {
               horizontal
               nestedScrollEnabled
               data={topTracks}
-              renderItem={({ item }) => renderItem(item, true)}
+              renderItem={({ item }) => renderItem(item, 'track')}
               keyExtractor={(item) => `track-${item.id}`}
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={{ padding: 8 }}
@@ -196,7 +226,7 @@ export default function HomeMainScreen({ navigation, route }) {
               horizontal
               nestedScrollEnabled
               data={topArtists}
-              renderItem={({ item }) => renderItem(item, false, true)}
+              renderItem={({ item }) => renderItem(item, 'artist')}
               keyExtractor={(item) => `artist-${item.id}`}
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={{ padding: 8 }}
@@ -206,7 +236,7 @@ export default function HomeMainScreen({ navigation, route }) {
               horizontal
               nestedScrollEnabled
               data={newReleases}
-              renderItem={({ item }) => renderItem(item, false)}
+              renderItem={({ item }) => renderItem(item, 'album')}
               keyExtractor={(item) => `release-${item.id}`}
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={{ padding: 8 }}
@@ -221,12 +251,21 @@ export default function HomeMainScreen({ navigation, route }) {
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#121212' },
   container: { flex: 1, backgroundColor: '#121212' },
+  searchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    backgroundColor: '#121212',
+  },
+  goBackButton: { marginRight: 8 },
+  goBackText: { color: '#aaa', fontWeight: 'bold', fontSize: 18 },
   searchInput: {
+    flex: 1,
     backgroundColor: '#1e1e1e',
     color: '#fff',
     borderRadius: 8,
     padding: 10,
-    marginBottom: 16,
   },
   section: { color: '#fff', fontSize: 20, fontWeight: 'bold', marginLeft: 8, marginVertical: 8 },
   card: {
