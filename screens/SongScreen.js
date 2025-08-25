@@ -1,47 +1,49 @@
-import React, { useEffect, useState } from "react";
+// screens/SongScreen.js
+import React, { useEffect, useState, useRef } from "react";
 import { 
   View, Text, ScrollView, TouchableOpacity, ActivityIndicator, 
-  StyleSheet, Linking, Image, Pressable, TextInput
+  StyleSheet, Linking, Image, Pressable, Dimensions, Animated 
 } from "react-native";
-import { auth, db } from "../firebase";
-import { onAuthStateChanged } from "firebase/auth";
-import { doc, setDoc, getDoc, onSnapshot, collection, deleteDoc } from "firebase/firestore";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Icon from "react-native-vector-icons/FontAwesome5";
+import { auth, db } from "../firebase";
+import { onAuthStateChanged } from "firebase/auth";
+import { doc, setDoc, getDoc, collection, getDocs } from "firebase/firestore";
+
+const screenWidth = Dimensions.get("window").width;
 
 export default function SongScreen({ route, navigation }) {
   const { songId, token: routeToken } = route.params;
   const [song, setSong] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [user, setUser] = useState(null);
-  const [authChecked, setAuthChecked] = useState(false);
   const [rating, setRating] = useState(0);
-  const [review, setReview] = useState("");
-  const [allReviews, setAllReviews] = useState([]);
   const [token, setToken] = useState(routeToken || null);
-  const [tokenLoaded, setTokenLoaded] = useState(false);
+  const [user, setUser] = useState(null);
 
-  // --- Monitor Firebase Auth ---
+  const [globalRating, setGlobalRating] = useState(0);
+  const [globalBreakdown, setGlobalBreakdown] = useState({});
+  const barAnimations = useRef({}).current;
+
+  const [lyrics, setLyrics] = useState("");
+  const [loadingLyrics, setLoadingLyrics] = useState(false);
+  const [lyricsError, setLyricsError] = useState("");
+  const [lyricsExpanded, setLyricsExpanded] = useState(false);
+
+  // --- Firebase auth ---
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (u) => {
-      setUser(u);
-      setAuthChecked(true);
-    });
+    const unsubscribe = onAuthStateChanged(auth, u => setUser(u));
     return unsubscribe;
   }, []);
 
-  // --- Load Spotify token from AsyncStorage ---
+  // --- Load Spotify token ---
   useEffect(() => {
     const loadToken = async () => {
       if (!routeToken) {
         try {
           const storedToken = await AsyncStorage.getItem("spotifyToken");
           if (storedToken) setToken(storedToken);
-        } catch (err) {
-          console.log("Error loading Spotify token:", err);
-        }
+        } catch (err) { console.error(err); }
       } else setToken(routeToken);
-      setTokenLoaded(true);
     };
     loadToken();
   }, [routeToken]);
@@ -65,99 +67,117 @@ export default function SongScreen({ route, navigation }) {
     } catch { setSong(null); }
     finally { setLoading(false); }
   };
-
   useEffect(() => { if (token) fetchSong(token); }, [songId, token]);
 
-  // --- Fetch Spotify username ---
-  const fetchSpotifyUser = async () => {
-    if (!token) return "Unknown User";
-    try {
-      const res = await fetch("https://api.spotify.com/v1/me", {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      const data = await res.json();
-      return data.display_name || data.id || "Unknown User";
-    } catch (err) {
-      console.log("Error fetching Spotify user:", err);
-      return "Unknown User";
+  // --- Fetch lyrics ---
+  useEffect(() => {
+    if (song?.artists?.[0]?.name && song?.name) {
+      const fetchLyrics = async () => {
+        setLoadingLyrics(true);
+        setLyricsError("");
+        setLyrics("");
+        try {
+          const res = await fetch(
+            `https://api.lyrics.ovh/v1/${encodeURIComponent(song.artists[0].name)}/${encodeURIComponent(song.name)}`
+          );
+          const text = await res.text();
+          try {
+            const data = JSON.parse(text);
+            if (data.lyrics) setLyrics(data.lyrics);
+            else throw new Error();
+          } catch {
+            throw new Error("Lyrics.ovh returned non-JSON");
+          }
+        } catch {
+          setLyrics(`Lyrics not found. View on Genius: ${song.name} - ${song.artists[0].name}`);
+          setLyricsError("genius");
+        } finally { setLoadingLyrics(false); }
+      };
+      fetchLyrics();
     }
-  };
+  }, [song]);
 
-  // --- Load user review & all reviews ---
+  // --- Load user's rating ---
   useEffect(() => {
     if (!user || !songId) return;
-
-    const userDocRef = doc(db, "reviews", songId, "reviews", user.uid);
-    getDoc(userDocRef).then(docSnap => {
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        setRating(data.rating || 0);
-        setReview(data.review || "");
-      } else {
-        setRating(0);
-        setReview("");
-      }
-    }).catch(console.error);
-
-    const unsubscribe = onSnapshot(
-      collection(db, "reviews", songId, "reviews"),
-      snapshot => {
-        const reviewsArray = snapshot.docs.map(d => ({
-          id: d.id,
-          ...d.data()
-        }));
-        setAllReviews(reviewsArray);
-      }
-    );
-    return () => unsubscribe();
+    const loadRating = async () => {
+      const docRef = doc(db, "songRatings", songId, "ratings", user.uid);
+      const docSnap = await getDoc(docRef);
+      if (docSnap.exists()) setRating(docSnap.data().rating || 0);
+    };
+    loadRating();
   }, [user, songId]);
 
-  // --- Save / Delete review ---
-  const saveReview = async () => {
+  // --- Save user's rating ---
+  const saveRating = async (value) => {
     if (!user) return;
-    if (!rating && !review.trim()) return;
-
-    const spotifyUsername = await fetchSpotifyUser();
-
+    setRating(value);
     try {
-      await setDoc(doc(db, "reviews", songId, "reviews", user.uid), {
-        rating,
-        review,
+      await setDoc(doc(db, "songRatings", songId, "ratings", user.uid), {
+        rating: value,
         userId: user.uid,
-        spotifyUsername,
         createdAt: new Date()
       });
-    } catch (err) { console.error("Error saving review:", err); }
+      loadGlobalRating(); // refresh bars
+    } catch (err) { console.error(err); }
   };
 
-  const deleteReview = async () => {
-    if (!user) return;
+  // --- Load global ratings ---
+  const loadGlobalRating = async () => {
+    if (!songId) return;
     try {
-      await deleteDoc(doc(db, "reviews", songId, "reviews", user.uid));
-      setRating(0);
-      setReview("");
-    } catch (err) { console.error("Error deleting review:", err); }
-  };
+      const colRef = collection(db, "songRatings", songId, "ratings");
+      const snapshot = await getDocs(colRef);
+      let sum = 0, count = 0;
+      const breakdown = {};
+      for (let i = 1; i <= 5; i += 0.5) breakdown[i.toFixed(1)] = 0;
 
-  // --- Render stars ---
-  const renderStars = (ratingValue, onPress) => (
+      snapshot.docs.forEach(doc => {
+        const r = doc.data().rating;
+        if (r != null) {
+          sum += r;
+          count += 1;
+          const rounded = Math.round(r*2)/2;
+          breakdown[rounded.toFixed(1)] += 1;
+        }
+      });
+
+      setGlobalRating(count ? sum / count : 0);
+
+      setGlobalBreakdown(breakdown);
+
+      Object.keys(breakdown).forEach(key => {
+        if (!barAnimations[key]) barAnimations[key] = new Animated.Value(0);
+        Animated.timing(barAnimations[key], {
+          toValue: breakdown[key],
+          duration: 400,
+          useNativeDriver: false
+        }).start();
+      });
+
+    } catch (err) { console.error(err); }
+  };
+  useEffect(() => { loadGlobalRating(); }, [songId]);
+
+  const renderStars = (ratingValue, onPress, size=32) => (
     <View style={{ flexDirection: "row" }}>
-      {[1,2,3,4,5].map((i) => {
+      {[1,2,3,4,5].map(i => {
         const fullStar = i <= ratingValue;
         const halfStar = !fullStar && i - 0.5 <= ratingValue;
         return (
           <Pressable
             key={i}
-            style={{ width: 40, alignItems: "center" }}
+            style={{ width: size+8, alignItems: "center" }}
             onPress={(e) => {
+              if (!onPress) return;
               const { locationX } = e.nativeEvent;
-              if (locationX < 20) onPress(i - 0.5);
-              else onPress(i);
+              const newValue = locationX < size/2 ? i - 0.5 : i;
+              onPress(newValue);
             }}
           >
             <Icon
               name={fullStar ? "star" : halfStar ? "star-half-alt" : "star"}
-              size={32}
+              size={size}
               solid={fullStar || halfStar}
               color={fullStar || halfStar ? "#1db954" : "#888"}
             />
@@ -167,13 +187,18 @@ export default function SongScreen({ route, navigation }) {
     </View>
   );
 
-  // --- Show loading until auth & token are ready ---
-  if (!authChecked || !tokenLoaded || loading) return <ActivityIndicator size="large" style={{ flex:1 }} color="#1db954" />;
+  if (loading || !token) return <ActivityIndicator size="large" style={{ flex:1 }} color="#1db954" />;
   if (!song) return <Text style={{ color:'#fff', textAlign:'center', marginTop:20 }}>Failed to load song details.</Text>;
 
+  const lines = lyrics.split("\n");
+  const preview = lines.slice(0, 6).join("\n");
+  const shouldCollapse = lines.length > 6;
+
+  const maxCount = Math.max(...Object.values(globalBreakdown));
+
   return (
-    <ScrollView style={styles.container} keyboardShouldPersistTaps="handled">
-      {/* Song info */}
+    <ScrollView style={styles.container}>
+      {/* Song Info */}
       <View style={styles.topRow}>
         <Image source={{ uri: song.album?.images?.[1]?.url || song.album?.images?.[0]?.url }} style={styles.cover} />
         <View style={styles.songInfo}>
@@ -190,55 +215,69 @@ export default function SongScreen({ route, navigation }) {
         </View>
       </View>
 
-      {/* Open in Spotify */}
+      {/* Spotify Link */}
       <TouchableOpacity style={styles.spotifyButton} onPress={() => Linking.openURL(song.external_urls?.spotify).catch(console.error)}>
         <Icon name="spotify" size={28} color="#fff" />
         <Text style={styles.buttonText}>Open in Spotify</Text>
       </TouchableOpacity>
 
-      {/* User Review */}
-      {user ? (
-        <View style={{ marginTop:16 }}>
-          <Text style={{ color:"#fff", marginBottom:4 }}>Your Review:</Text>
-          {renderStars(rating, setRating)}
-          <TextInput
-            style={styles.reviewInput}
-            placeholder="Write a review..."
-            placeholderTextColor="#888"
-            value={review}
-            onChangeText={setReview}
-            multiline
-          />
-          <View style={{ flexDirection:"row", marginTop:8 }}>
-            <TouchableOpacity style={styles.saveButton} onPress={saveReview}>
-              <Text style={{ color:"#fff", fontWeight:"bold" }}>Save</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.saveButton, { backgroundColor:"#f44336", marginLeft:8 }]} onPress={deleteReview}>
-              <Text style={{ color:"#fff", fontWeight:"bold" }}>Delete</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      ) : (
-        <View style={{ marginTop:16, alignItems:"center" }}>
-          <Text style={{color:"#fff", marginBottom:8}}>Login to leave a review</Text>
-          <TouchableOpacity style={{ backgroundColor:"#1db954", padding:10, borderRadius:8 }} onPress={() => navigation.navigate("Login")}>
-            <Text style={{color:"#fff", fontWeight:"bold"}}>Go to Login</Text>
-          </TouchableOpacity>
-        </View>
-      )}
+      {/* User rating */}
+      <View style={{ marginTop:16 }}>
+        <Text style={{ color:"#fff", marginBottom:4 }}>Your Rating:</Text>
+        {renderStars(rating, saveRating)}
+      </View>
 
-      {/* All Reviews */}
-      <View style={{ marginTop:24 }}>
-        <Text style={{ color:"#fff", fontSize:18, marginBottom:8 }}>All Reviews:</Text>
-        {allReviews.map(r => (
-          <View key={r.id} style={styles.reviewCard}>
-            <Text style={{ color:"#1db954", fontWeight:"bold" }}>
-              {r.spotifyUsername || r.userEmail || "Unknown"}
-            </Text>
-            {renderStars(r.rating, ()=>{})}
-            <Text style={{ color:"#fff", marginTop:4 }}>{r.review}</Text>
+      {/* Global rating */}
+      <View style={{ marginTop:16 }}>
+        <Text style={{ color:"#ccc", fontSize:16, marginBottom:4, fontWeight:"bold" }}>Global Average Rating</Text>
+        <View style={{ flexDirection:"row", alignItems:"center" }}>
+          <View style={{ flexDirection:"row", alignItems:"flex-end", height:70 }}>
+            {Object.keys(globalBreakdown).map(key => {
+              const animatedHeight = barAnimations[key]?.interpolate({
+                inputRange: [0, maxCount || 1],
+                outputRange: [0, 70],
+                extrapolate: 'clamp'
+              }) || 0;
+              return (
+                <View key={key} style={{ marginHorizontal:1, width:12, backgroundColor:"#333", borderRadius:3 }}>
+                  {/* Filled portion */}
+                  <Animated.View style={{ width:"100%", height:animatedHeight, backgroundColor:"#888", borderRadius:3 }} />
+                </View>
+              )
+            })}
           </View>
-        ))}
+          <Text style={{ color:"#fff", fontSize:24, fontWeight:"bold", marginLeft:12 }}>{globalRating.toFixed(1)}</Text>
+        </View>
+      </View>
+
+
+      {/* Lyrics */}
+      <View style={styles.lyricsContainer}>
+        <Text style={styles.lyricsTitle}>Lyrics</Text>
+        {loadingLyrics ? (
+          <ActivityIndicator size="small" color="#1db954" />
+        ) : (
+          <>
+            {lyricsError === "genius" ? (
+              <TouchableOpacity onPress={() => Linking.openURL(`https://genius.com/search?q=${encodeURIComponent(song.name + " " + song.artists[0].name)}`)}>
+                <Text style={[styles.lyricsText, { color:"#1db954", textDecorationLine:"underline" }]}>
+                  View lyrics on Genius
+                </Text>
+              </TouchableOpacity>
+            ) : (
+              <>
+                <Text style={styles.lyricsText}>{lyricsExpanded ? lyrics : preview}</Text>
+                {shouldCollapse && (
+                  <TouchableOpacity onPress={() => setLyricsExpanded(!lyricsExpanded)}>
+                    <Text style={styles.toggleText}>
+                      {lyricsExpanded ? "Show Less ▲" : "Show More ▼"}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+              </>
+            )}
+          </>
+        )}
       </View>
     </ScrollView>
   );
@@ -255,7 +294,8 @@ const styles = StyleSheet.create({
   detail:{ color:"#ccc", fontSize:14, marginBottom:2 },
   spotifyButton:{ flexDirection:"row", alignItems:"center", backgroundColor:"#1db954", paddingVertical:8, paddingHorizontal:12, borderRadius:8, marginTop:12 },
   buttonText:{ color:"#fff", fontWeight:"bold", marginLeft:8 },
-  reviewInput:{ backgroundColor:"#222", color:"#fff", padding:8, borderRadius:8, marginTop:8, minHeight:60 },
-  saveButton:{ backgroundColor:"#1db954", padding:10, borderRadius:8 },
-  reviewCard:{ backgroundColor:"#1f1f1f", padding:8, borderRadius:8, marginBottom:8 }
+  lyricsContainer:{ marginTop:20, padding:12, backgroundColor:"#222", borderRadius:8 },
+  lyricsTitle:{ color:"#fff", fontSize:18, fontWeight:"bold", marginBottom:8 },
+  lyricsText:{ color:"#ddd", fontSize:14, lineHeight:20 },
+  toggleText:{ color:"#1db954", marginTop:8, fontWeight:"bold", textAlign:"center" }
 });
