@@ -1,17 +1,11 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState } from "react";
 import { 
-  View, 
-  Text, 
-  FlatList, 
-  Image, 
-  TouchableOpacity, 
-  ActivityIndicator, 
-  StyleSheet,
-  Animated
+  View, Text, FlatList, Image, TouchableOpacity, ActivityIndicator, 
+  StyleSheet, Animated 
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-export default function ArtistPage({ route, navigation }) {
+export default function ArtistScreen({ route, navigation }) {
   const { artistId, token: routeToken } = route.params;
   const [artist, setArtist] = useState(null);
   const [albums, setAlbums] = useState([]);
@@ -20,67 +14,68 @@ export default function ArtistPage({ route, navigation }) {
   const [ratings, setRatings] = useState({});
   const [token, setToken] = useState(routeToken || null);
 
-  // Load token from AsyncStorage if not passed
-  const loadToken = async () => {
-    if (!routeToken) {
-      try {
-        const storedToken = await AsyncStorage.getItem("spotifyToken");
-        if (storedToken) setToken(storedToken);
-      } catch (err) {
-        console.error("Error loading token:", err);
+  useEffect(() => {
+    const loadToken = async () => {
+      if (!routeToken) {
+        try {
+          const storedToken = await AsyncStorage.getItem("spotifyToken");
+          if (storedToken) setToken(storedToken);
+        } catch (err) { console.error("Error loading token:", err); }
       }
-    }
-  };
+    };
+    loadToken();
+  }, []);
 
   useEffect(() => {
-    const init = async () => {
-      await loadToken();
+    const loadRatings = async () => {
+      try {
+        const stored = await AsyncStorage.getItem("songRatings");
+        if (stored) setRatings(JSON.parse(stored));
+      } catch (err) { console.error("Failed to load ratings:", err); }
     };
-    init();
+    loadRatings();
   }, []);
 
   useEffect(() => {
     if (token) fetchArtistData();
   }, [token]);
 
-  const loadRatings = async () => {
+  const fetchAlbumTracks = async (albumId) => {
     try {
-      const stored = await AsyncStorage.getItem("songRatings");
-      if (stored) setRatings(JSON.parse(stored));
-    } catch (err) {
-      console.error("Failed to load ratings:", err);
+      const res = await fetch(`https://api.spotify.com/v1/albums/${albumId}/tracks`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      return data.items || [];
+    } catch {
+      return [];
     }
   };
 
-  useEffect(() => {
-    loadRatings();
-  }, []);
-
-  // Fetch artist info, albums, and top tracks from Spotify
   const fetchArtistData = async () => {
     if (!artistId || !token) return;
     setLoading(true);
-
     try {
       const [artistRes, albumsRes, topTracksRes] = await Promise.all([
-        fetch(`https://api.spotify.com/v1/artists/${artistId}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        }),
-        fetch(`https://api.spotify.com/v1/artists/${artistId}/albums?include_groups=album,single&limit=20`, {
-          headers: { Authorization: `Bearer ${token}` },
-        }),
-        fetch(`https://api.spotify.com/v1/artists/${artistId}/top-tracks?market=US`, {
-          headers: { Authorization: `Bearer ${token}` },
-        }),
+        fetch(`https://api.spotify.com/v1/artists/${artistId}`, { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`https://api.spotify.com/v1/artists/${artistId}/albums?include_groups=album,single&limit=20`, { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`https://api.spotify.com/v1/artists/${artistId}/top-tracks?market=US`, { headers: { Authorization: `Bearer ${token}` } }),
       ]);
 
       const artistData = await artistRes.json();
       const albumsData = await albumsRes.json();
       const topTracksData = await topTracksRes.json();
 
+      const albumsWithTracks = await Promise.all(
+        (albumsData.items || []).map(async (album) => {
+          const tracks = await fetchAlbumTracks(album.id);
+          return { ...album, tracks: { items: tracks } };
+        })
+      );
+
       setArtist(artistData);
-      setAlbums(albumsData.items || []);
-      setTopTracks((topTracksData.tracks || []).slice(0, 5)); // limit to 5
+      setAlbums(albumsWithTracks);
+      setTopTracks((topTracksData.tracks || []).slice(0, 5));
     } catch (err) {
       console.error("Spotify fetch error:", err);
     } finally {
@@ -98,9 +93,10 @@ export default function ArtistPage({ route, navigation }) {
   const renderAlbum = (item) => {
     const completion = getCompletionPercent(item);
     return (
-      <TouchableOpacity 
-        style={styles.albumCard} 
-        onPress={() => navigation.navigate("Album", { albumId: item.id, token })}
+      <TouchableOpacity
+        style={styles.albumCard}
+        activeOpacity={0.7}
+        onPress={() => item.id && navigation.navigate("Album", { albumId: item.id, token })}
       >
         <Image source={{ uri: item.images?.[1]?.url || item.images?.[0]?.url }} style={styles.albumCover} />
         <Text style={styles.cardTitle} numberOfLines={1}>{item.name}</Text>
@@ -113,9 +109,10 @@ export default function ArtistPage({ route, navigation }) {
   };
 
   const renderTrack = (item) => (
-    <TouchableOpacity 
-      style={styles.trackCard} 
-      onPress={() => navigation.navigate("Song", { songId: item.id, token })}
+    <TouchableOpacity
+      style={styles.trackCard}
+      activeOpacity={0.7}
+      onPress={() => item.id && navigation.navigate("Song", { songId: item.id, token })}
     >
       <Image source={{ uri: item.album?.images?.[1]?.url || item.album?.images?.[0]?.url }} style={styles.trackCover} />
       <View style={{ marginLeft: 10, flex: 1 }}>
@@ -139,14 +136,11 @@ export default function ArtistPage({ route, navigation }) {
           <Image source={{ uri: artist.images?.[1]?.url || artist.images?.[0]?.url }} style={styles.artistCover} />
           <Text style={styles.artistName}>{artist.name}</Text>
           <Text style={styles.artistInfo}>Followers: {artist.followers?.total?.toLocaleString()}</Text>
-
-          {/* Top Tracks Header */}
           <Text style={styles.section}>Top Tracks</Text>
         </>
       }
       ListFooterComponent={
         <>
-          {/* Albums Section */}
           <Text style={styles.section}>Albums</Text>
           <FlatList
             data={albums}

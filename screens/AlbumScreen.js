@@ -1,14 +1,5 @@
 import React, { useEffect, useState, useCallback } from "react";
-import {
-  View,
-  Text,
-  FlatList,
-  Image,
-  TouchableOpacity,
-  ActivityIndicator,
-  StyleSheet,
-  Pressable,
-} from "react-native";
+import { View, Text, FlatList, TouchableOpacity, Image, ActivityIndicator, StyleSheet, Pressable } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect } from "@react-navigation/native";
 import Icon from "react-native-vector-icons/FontAwesome5";
@@ -21,18 +12,18 @@ export default function AlbumScreen({ route, navigation }) {
   const [ratings, setRatings] = useState({});
   const [token, setToken] = useState(routeToken || null);
 
-  const loadToken = async () => {
-    if (!routeToken) {
-      try {
-        const storedToken = await AsyncStorage.getItem("spotifyToken");
-        if (storedToken) setToken(storedToken);
-      } catch (err) {
-        console.error("Error loading token:", err);
+  useEffect(() => {
+    const loadToken = async () => {
+      if (!routeToken) {
+        try {
+          const storedToken = await AsyncStorage.getItem("spotifyToken");
+          if (storedToken) setToken(storedToken);
+        } catch (err) { console.error("Error loading token:", err); }
       }
-    }
-  };
+    };
+    loadToken();
+  }, []);
 
-  useEffect(() => { loadToken(); }, []);
   useEffect(() => { if (token) fetchAlbum(); }, [token]);
   useFocusEffect(useCallback(() => { loadRatings(); }, []));
 
@@ -46,11 +37,8 @@ export default function AlbumScreen({ route, navigation }) {
       const data = await res.json();
       setAlbum(data);
       setTracks(data.tracks?.items || []);
-    } catch (err) {
-      console.error("Spotify Album fetch error:", err);
-    } finally {
-      setLoading(false);
-    }
+    } catch (err) { console.error("Spotify Album fetch error:", err); }
+    finally { setLoading(false); }
   };
 
   const loadRatings = async () => {
@@ -73,22 +61,11 @@ export default function AlbumScreen({ route, navigation }) {
     for (let i = 1; i <= 5; i++) {
       let iconName;
       let solid = true;
-
-      if (rating >= i) {
-        iconName = "star"; // full
-        solid = true;
-      } else if (rating >= i - 0.5) {
-        iconName = "star-half-alt"; // half
-        solid = true;
-      } else {
-        iconName = "star"; // empty outline
-        solid = false;
-      }
-
+      if (rating >= i) iconName = "star";
+      else if (rating >= i - 0.5) iconName = "star-half-alt";
+      else { iconName = "star"; solid = false; }
       stars.push(
-        <Pressable
-          key={i}
-          style={{ width: 32, alignItems: "center" }}
+        <Pressable key={i} style={{ width: 32, alignItems: "center" }}
           onPress={({ nativeEvent }) => {
             const x = nativeEvent.locationX;
             const newValue = x < 16 ? i - 0.5 : i;
@@ -107,23 +84,23 @@ export default function AlbumScreen({ route, navigation }) {
     return (
       <TouchableOpacity
         style={styles.songCard}
-        onPress={() => navigation.navigate("Song", { songId: item.id, token })}
+        activeOpacity={0.7}
+        onPress={() => item.id && navigation.navigate("Song", { songId: item.id, token })}
       >
         <View style={styles.trackRow}>
           <View style={{ flex: 1 }}>
             <Text style={styles.songTitle}>{item.name}</Text>
-            <Text style={styles.songArtist}>{item.artists?.map(a => a.name).join(", ")}</Text>
+            <TouchableOpacity activeOpacity={0.7} onPress={() => item.artists?.[0]?.id && navigation.navigate("Artist", { artistId: item.artists[0].id, token })}>
+              <Text style={styles.songArtist}>{item.artists?.map(a => a.name).join(", ")}</Text>
+            </TouchableOpacity>
           </View>
-          <View>
-            {renderStars(rating, (value) => saveRating(item.id, value))}
-          </View>
+          <View>{renderStars(rating, (value) => saveRating(item.id, value))}</View>
         </View>
       </TouchableOpacity>
     );
   };
 
-  if (loading || !album)
-    return <ActivityIndicator style={{ flex: 1 }} size="large" color="#1db954" />;
+  if (loading || !album) return <ActivityIndicator style={{ flex: 1 }} size="large" color="#1db954" />;
 
   const ratedCount = tracks.filter(track => ratings[track.id]).length;
   const completion = tracks.length > 0 ? (ratedCount / tracks.length) * 100 : 0;
@@ -132,7 +109,9 @@ export default function AlbumScreen({ route, navigation }) {
     <>
       <Image source={{ uri: album.images?.[1]?.url || album.images?.[0]?.url }} style={styles.cover} />
       <Text style={styles.title}>{album.name}</Text>
-      <Text style={styles.artist}>{album.artists?.map(a => a.name).join(", ")}</Text>
+      <TouchableOpacity activeOpacity={0.7} onPress={() => album.artists?.[0]?.id && navigation.navigate("Artist", { artistId: album.artists[0].id, token })}>
+        <Text style={styles.artist}>{album.artists?.map(a => a.name).join(", ")}</Text>
+      </TouchableOpacity>
       <Text style={styles.release}>Released: {album.release_date}</Text>
       <Text style={styles.genre}>Genres: {album.genres?.join(", ") || "Unknown"}</Text>
 
@@ -164,15 +143,14 @@ const styles = StyleSheet.create({
   container: { padding: 16, backgroundColor: "#121212" },
   cover: { width: 280, height: 280, borderRadius: 12, alignSelf: "center", marginBottom: 16 },
   title: { color: "#fff", fontSize: 24, fontWeight: "bold", textAlign: "center", marginBottom: 4 },
-  artist: { color: "#aaa", fontSize: 18, textAlign: "center", marginBottom: 4 },
+  artist: { color: "#1db954", fontSize: 18, textAlign: "center", marginBottom: 4 },
   release: { color: "#ccc", fontSize: 14, textAlign: "center", marginBottom: 2 },
   genre: { color: "#ccc", fontSize: 14, textAlign: "center", marginBottom: 12 },
   section: { color: "#fff", fontSize: 20, fontWeight: "bold", marginTop: 20, marginBottom: 8 },
   songCard: { paddingVertical: 10, borderBottomColor: "#333", borderBottomWidth: 1 },
   trackRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   songTitle: { color: "#fff", fontSize: 16 },
-  songArtist: { color: "#aaa", fontSize: 14 },
-  ratingRow: { flexDirection: "row", marginTop: 4 },
+  songArtist: { color: "#1db954", fontSize: 14 },
   progressContainer: { width: "100%", height: 10, backgroundColor: "#333", borderRadius: 5, marginVertical: 8 },
   progressBar: { height: "100%", backgroundColor: "#1db954", borderRadius: 5 },
   progressText: { color: "#ccc", fontSize: 14, textAlign: "center", marginBottom: 10 },

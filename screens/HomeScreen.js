@@ -11,14 +11,12 @@ import {
   ScrollView,
   SafeAreaView,
   StatusBar,
-  Platform,
   Dimensions,
 } from 'react-native';
 
 const { width: screenWidth } = Dimensions.get('window');
 
-export default function HomeMainScreen({ navigation, route }) {
-  const token = route.params?.token;
+export default function HomeScreen({ navigation, token }) {
   const [topTracks, setTopTracks] = useState([]);
   const [topArtists, setTopArtists] = useState([]);
   const [newReleases, setNewReleases] = useState([]);
@@ -72,6 +70,7 @@ export default function HomeMainScreen({ navigation, route }) {
     setLoading(true);
     setSearching(true);
     setError(null);
+
     try {
       const res = await fetch(
         `https://api.spotify.com/v1/search?q=${encodeURIComponent(
@@ -119,12 +118,7 @@ export default function HomeMainScreen({ navigation, route }) {
         {artwork && (
           <Image
             source={{ uri: artwork }}
-            style={{
-              width: cardWidth - 16,
-              height: cardWidth - 16,
-              borderRadius: 8,
-              marginBottom: 8,
-            }}
+            style={{ width: cardWidth - 16, height: cardWidth - 16, borderRadius: 8, marginBottom: 8 }}
           />
         )}
         <View style={styles.textContainer}>
@@ -142,8 +136,6 @@ export default function HomeMainScreen({ navigation, route }) {
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="light-content" backgroundColor="#121212" />
-
-      {/* SEARCH BAR WITH GO BACK */}
       <View style={styles.searchRow}>
         {searching && (
           <TouchableOpacity style={styles.goBackButton} onPress={handleGoBack}>

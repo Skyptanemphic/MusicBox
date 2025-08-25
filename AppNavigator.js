@@ -2,7 +2,6 @@ import React from "react";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 
 // Screens
-import LoginScreen from "./screens/LoginScreen";
 import HomeScreen from "./screens/HomeScreen";
 import SongScreen from "./screens/SongScreen";
 import AlbumScreen from "./screens/AlbumScreen";
@@ -10,43 +9,36 @@ import ArtistPage from "./screens/ArtistScreen";
 
 const Stack = createNativeStackNavigator();
 
-export default function AppNavigator() {
+export default function AppNavigator({ token }) {
   return (
     <Stack.Navigator
-      initialRouteName="Login"
+      initialRouteName="HomeScreen"
       screenOptions={{
         contentStyle: { backgroundColor: "#121212" },
         headerStyle: { backgroundColor: "#121212" },
         headerTintColor: "#fff",
       }}
     >
-      {/* Login screen */}
+      {/* Rename to avoid conflict with drawer */}
       <Stack.Screen
-        name="Login"
-        component={LoginScreen}
+        name="HomeScreen"
         options={{ headerShown: false }}
-      />
+      >
+        {(props) => <HomeScreen {...props} token={token} />}
+      </Stack.Screen>
 
-      {/* Home screen, receives token from LoginScreen */}
       <Stack.Screen
-        name="Home"
-        component={HomeScreen}
-        options={{ headerShown: false }}
-      />
-
-      {/* Other screens */}
-      <Stack.Screen
-        name="Album"
+        name="AlbumScreen"
         component={AlbumScreen}
         options={{ title: "Album" }}
       />
       <Stack.Screen
-        name="Song"
+        name="SongScreen"
         component={SongScreen}
         options={{ title: "Song Details" }}
       />
       <Stack.Screen
-        name="Artist"
+        name="ArtistScreen"
         component={ArtistPage}
         options={{ title: "Artist" }}
       />

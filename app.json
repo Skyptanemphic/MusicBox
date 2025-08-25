@@ -1,8 +1,8 @@
 {
   "expo": {
-    "name": "MusicBox",
-    "slug": "MusicBox",
-    "scheme": "MusicBox",
+    "name": "SoundNet",            
+    "slug": "SoundNet",            
+    "scheme": "SoundNet", 
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -14,9 +14,11 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
+      "bundleIdentifier": "com.yourname.soundnet", 
       "supportsTablet": true
     },
     "android": {
+      "package": "com.Skyptanemphic.soundnet",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
