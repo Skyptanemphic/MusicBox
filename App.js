@@ -18,9 +18,10 @@ import SettingsScreen from "./screens/SettingsScreen";
 import SongScreen from "./screens/SongScreen";
 import AlbumScreen from "./screens/AlbumScreen";
 import ArtistScreen from "./screens/ArtistScreen";
+import CategoryPlaylistsScreen from "./screens/CategoryPlaylistsScreen";
 
-// Drawer Navigator
 const Drawer = createDrawerNavigator();
+const Stack = createNativeStackNavigator();
 
 function MainDrawer({ token }) {
   return (
@@ -36,23 +37,21 @@ function MainDrawer({ token }) {
       <Drawer.Screen
         name="Home"
         options={{
-          drawerIcon: ({ color, size }) => <Icon name="home-outline" color={color} size={size} />,
+          drawerIcon: ({ color, size }) => (
+            <Icon name="home-outline" color={color} size={size} />
+          ),
         }}
       >
         {(props) => <HomeScreen {...props} token={token} />}
       </Drawer.Screen>
       <Drawer.Screen name="Profile" component={ProfileScreen} />
       <Drawer.Screen name="Search" component={SearchScreen} />
-      <Drawer.Screen name="Playlists" component={PlaylistScreen} />
       <Drawer.Screen name="Reviews" component={ReviewsScreen} />
       <Drawer.Screen name="Activity" component={ActivityScreen} />
       <Drawer.Screen name="Settings" component={SettingsScreen} />
     </Drawer.Navigator>
   );
 }
-
-// Root Stack Navigator
-const Stack = createNativeStackNavigator();
 
 export default function App() {
   const [token, setToken] = useState(null);
@@ -65,7 +64,7 @@ export default function App() {
           {(props) => <LoginScreen {...props} onLogin={setToken} />}
         </Stack.Screen>
 
-        {/* Main App Drawer */}
+        {/* Main Drawer */}
         <Stack.Screen name="Main">
           {(props) => <MainDrawer {...props} token={token} />}
         </Stack.Screen>
@@ -100,6 +99,27 @@ export default function App() {
             headerStyle: { backgroundColor: "#121212" },
             headerTintColor: "#fff",
           }}
+        />
+        <Stack.Screen
+          name="CategoryPlaylists"
+          component={CategoryPlaylistsScreen}
+          options={({ route }) => ({
+            headerShown: true,
+            title: route?.params?.categoryName ?? "Playlists",
+            headerStyle: { backgroundColor: "#121212" },
+            headerTintColor: "#fff",
+          })}
+        />
+        {/* Playlist Screen added here */}
+        <Stack.Screen
+          name="Playlist"
+          component={PlaylistScreen}
+          options={({ route }) => ({
+            headerShown: true,
+            title: route?.params?.playlistName ?? "Playlist",
+            headerStyle: { backgroundColor: "#121212" },
+            headerTintColor: "#fff",
+          })}
         />
       </Stack.Navigator>
     </NavigationContainer>

@@ -68,6 +68,21 @@ export default function SongScreen({ route, navigation }) {
 
   useEffect(() => { if (token) fetchSong(token); }, [songId, token]);
 
+  // --- Fetch Spotify username ---
+  const fetchSpotifyUser = async () => {
+    if (!token) return "Unknown User";
+    try {
+      const res = await fetch("https://api.spotify.com/v1/me", {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      return data.display_name || data.id || "Unknown User";
+    } catch (err) {
+      console.log("Error fetching Spotify user:", err);
+      return "Unknown User";
+    }
+  };
+
   // --- Load user review & all reviews ---
   useEffect(() => {
     if (!user || !songId) return;
@@ -101,12 +116,15 @@ export default function SongScreen({ route, navigation }) {
   const saveReview = async () => {
     if (!user) return;
     if (!rating && !review.trim()) return;
+
+    const spotifyUsername = await fetchSpotifyUser();
+
     try {
       await setDoc(doc(db, "reviews", songId, "reviews", user.uid), {
         rating,
         review,
         userId: user.uid,
-        userEmail: user.email,
+        spotifyUsername,
         createdAt: new Date()
       });
     } catch (err) { console.error("Error saving review:", err); }
@@ -181,7 +199,7 @@ export default function SongScreen({ route, navigation }) {
       {/* User Review */}
       {user ? (
         <View style={{ marginTop:16 }}>
-          <Text style={{ color:"#fff", marginBottom:4 }}>Your Rating:</Text>
+          <Text style={{ color:"#fff", marginBottom:4 }}>Your Review:</Text>
           {renderStars(rating, setRating)}
           <TextInput
             style={styles.reviewInput}
@@ -214,7 +232,9 @@ export default function SongScreen({ route, navigation }) {
         <Text style={{ color:"#fff", fontSize:18, marginBottom:8 }}>All Reviews:</Text>
         {allReviews.map(r => (
           <View key={r.id} style={styles.reviewCard}>
-            <Text style={{ color:"#1db954", fontWeight:"bold" }}>{r.userEmail}</Text>
+            <Text style={{ color:"#1db954", fontWeight:"bold" }}>
+              {r.spotifyUsername || r.userEmail || "Unknown"}
+            </Text>
             {renderStars(r.rating, ()=>{})}
             <Text style={{ color:"#fff", marginTop:4 }}>{r.review}</Text>
           </View>
