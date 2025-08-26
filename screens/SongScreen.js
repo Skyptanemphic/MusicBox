@@ -286,7 +286,7 @@ export default function SongScreen({ route, navigation }) {
         {/* Your Rating */}
         <View>
           <Text style={{ color:"#fff", marginBottom:4 }}>Your Rating:</Text>
-          {renderStars(rating, saveRating, 28)}
+          {renderStars(rating, saveRating, 24)}
         </View>
       </View>
 

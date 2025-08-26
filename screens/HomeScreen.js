@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import {
   View,
   Text,
@@ -11,6 +11,8 @@ import {
   StatusBar,
   Dimensions,
   ActivityIndicator,
+  TextInput,
+  RefreshControl,
 } from "react-native";
 
 const { width: screenWidth } = Dimensions.get("window");
@@ -22,6 +24,9 @@ export default function HomeScreen({ navigation, token }) {
   const [categories, setCategories] = useState([]);
   const [featuredPlaylists, setFeaturedPlaylists] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState([]);
   const cardWidth = Math.round(screenWidth * 0.4);
   const cardHeight = Math.round(cardWidth * 1.5);
 
@@ -42,7 +47,6 @@ export default function HomeScreen({ navigation, token }) {
   const fetchSpotifyData = async () => {
     setLoading(true);
     try {
-      console.log("Fetching Spotify data...");
       const [tracksRes, artistsRes, newReleasesRes, categoriesRes, featuredRes] = await Promise.all([
         fetch("https://api.spotify.com/v1/me/top/tracks?limit=20", { headers: { Authorization: `Bearer ${token}` } }),
         fetch("https://api.spotify.com/v1/me/top/artists?limit=20", { headers: { Authorization: `Bearer ${token}` } }),
@@ -57,14 +61,13 @@ export default function HomeScreen({ navigation, token }) {
       const categoriesData = await safeJson(categoriesRes);
       const featuredData = await safeJson(featuredRes);
 
-      const validCategories = categoriesData.categories?.items?.filter(cat => cat.id && cat.name) || [];
-      console.log("Valid categories after filtering:", validCategories.length);
+      const validCategories = categoriesData.categories?.items?.filter(cat => cat && cat.id && cat.name) || [];
 
-      setTopTracks(tracksData.items || []);
-      setTopArtists(artistsData.items || []);
-      setNewReleases(newReleasesData.albums?.items || []);
+      setTopTracks((tracksData.items || []).filter(item => item && item.id));
+      setTopArtists((artistsData.items || []).filter(item => item && item.id));
+      setNewReleases((newReleasesData.albums?.items || []).filter(item => item && item.id));
       setCategories(validCategories);
-      setFeaturedPlaylists(featuredData.playlists?.items || []);
+      setFeaturedPlaylists((featuredData.playlists?.items || []).filter(item => item && item.id));
     } catch (err) {
       console.error("Spotify fetch error:", err);
     } finally {
@@ -72,7 +75,40 @@ export default function HomeScreen({ navigation, token }) {
     }
   };
 
-  const renderCard = (item, type) => {
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await fetchSpotifyData();
+    setRefreshing(false);
+  }, [token]);
+
+  const handleSearch = async (query) => {
+    if (!query) {
+      setSearchResults([]);
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const res = await fetch(
+        `https://api.spotify.com/v1/search?q=${encodeURIComponent(query)}&type=track,artist,album,playlist&limit=10`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      const data = await safeJson(res);
+      const results = [
+        ...(data.tracks?.items || []),
+        ...(data.artists?.items || []),
+        ...(data.albums?.items || []),
+        ...(data.playlists?.items || []),
+      ].filter(item => item && item.id);
+      setSearchResults(results);
+    } catch (err) {
+      console.error("Search error:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const renderCard = React.useCallback((item, type) => {
     let title = item.name;
     let subtitle = null;
     let imageUrl = null;
@@ -133,28 +169,99 @@ export default function HomeScreen({ navigation, token }) {
         </View>
       </TouchableOpacity>
     );
-  };
+  }, [cardWidth, cardHeight, navigation, token]);
 
-  if (loading) return <ActivityIndicator style={{ flex: 1 }} size="large" color="#1db954" />;
+  if (loading && !refreshing) return <ActivityIndicator style={{ flex: 1 }} size="large" color="#1db954" />;
 
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="light-content" backgroundColor="#121212" />
-      <ScrollView style={styles.container}>
-        <Text style={styles.section}>Top Tracks</Text>
-        <FlatList horizontal data={topTracks} renderItem={({ item }) => renderCard(item, "track")} keyExtractor={item => `track-${item.id}`} showsHorizontalScrollIndicator={false} contentContainerStyle={{ padding: 8 }} />
+      <View style={styles.searchContainer}>
+        <TextInput
+          placeholder="Search tracks, artists, albums..."
+          placeholderTextColor="#888"
+          style={styles.searchInput}
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+          returnKeyType="search"
+          onSubmitEditing={() => handleSearch(searchQuery)}
+        />
+      </View>
+      <ScrollView
+        style={styles.container}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+      >
+        {searchQuery ? (
+          <>
+            <Text style={styles.section}>Search Results</Text>
+            <FlatList
+              horizontal
+              data={searchResults}
+              renderItem={({ item }) => renderCard(item, item.type || "track")}
+              keyExtractor={(item, index) => `search-${item?.id || index}`}
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ padding: 8 }}
+              initialNumToRender={5}
+            />
+          </>
+        ) : (
+          <>
+            <Text style={styles.section}>Top Tracks</Text>
+            <FlatList
+              horizontal
+              data={topTracks}
+              renderItem={({ item }) => renderCard(item, "track")}
+              keyExtractor={(item, index) => `track-${item?.id || index}`}
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ padding: 8 }}
+              initialNumToRender={5}
+            />
 
-        <Text style={styles.section}>Top Artists</Text>
-        <FlatList horizontal data={topArtists} renderItem={({ item }) => renderCard(item, "artist")} keyExtractor={item => `artist-${item.id}`} showsHorizontalScrollIndicator={false} contentContainerStyle={{ padding: 8 }} />
+            <Text style={styles.section}>Top Artists</Text>
+            <FlatList
+              horizontal
+              data={topArtists}
+              renderItem={({ item }) => renderCard(item, "artist")}
+              keyExtractor={(item, index) => `artist-${item?.id || index}`}
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ padding: 8 }}
+              initialNumToRender={5}
+            />
 
-        <Text style={styles.section}>New Releases</Text>
-        <FlatList horizontal data={newReleases} renderItem={({ item }) => renderCard(item, "album")} keyExtractor={item => `album-${item.id}`} showsHorizontalScrollIndicator={false} contentContainerStyle={{ padding: 8 }} />
+            <Text style={styles.section}>New Releases</Text>
+            <FlatList
+              horizontal
+              data={newReleases}
+              renderItem={({ item }) => renderCard(item, "album")}
+              keyExtractor={(item, index) => `album-${item?.id || index}`}
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ padding: 8 }}
+              initialNumToRender={5}
+            />
 
-        <Text style={styles.section}>Categories</Text>
-        <FlatList horizontal data={categories} renderItem={({ item }) => renderCard(item, "category")} keyExtractor={item => `category-${item.id}`} showsHorizontalScrollIndicator={false} contentContainerStyle={{ padding: 8 }} />
+            <Text style={styles.section}>Categories</Text>
+            <FlatList
+              horizontal
+              data={categories}
+              renderItem={({ item }) => renderCard(item, "category")}
+              keyExtractor={(item, index) => `category-${item?.id || index}`}
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ padding: 8 }}
+              initialNumToRender={5}
+            />
 
-        <Text style={styles.section}>Featured Playlists</Text>
-        <FlatList horizontal data={featuredPlaylists} renderItem={({ item }) => renderCard(item, "playlist")} keyExtractor={item => `playlist-${item.id}`} showsHorizontalScrollIndicator={false} contentContainerStyle={{ padding: 8 }} />
+            <Text style={styles.section}>Featured Playlists</Text>
+            <FlatList
+              horizontal
+              data={featuredPlaylists}
+              renderItem={({ item }) => renderCard(item, "playlist")}
+              keyExtractor={(item, index) => `playlist-${item?.id || index}`}
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ padding: 8 }}
+              initialNumToRender={5}
+            />
+          </>
+        )}
       </ScrollView>
     </SafeAreaView>
   );
@@ -168,4 +275,6 @@ const styles = StyleSheet.create({
   textContainer: { width: "100%", alignItems: "center" },
   title: { color: "#fff", fontWeight: "bold", textAlign: "center" },
   subtitle: { color: "#aaa", fontSize: 12, textAlign: "center" },
+  searchContainer: { padding: 8 },
+  searchInput: { backgroundColor: "#1e1e1e", color: "#fff", borderRadius: 8, paddingHorizontal: 12, height: 40 },
 });

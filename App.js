@@ -44,11 +44,61 @@ function MainDrawer({ token }) {
       >
         {(props) => <HomeScreen {...props} token={token} />}
       </Drawer.Screen>
-      <Drawer.Screen name="Profile" component={ProfileScreen} />
-      <Drawer.Screen name="Search" component={SearchScreen} />
-      <Drawer.Screen name="Reviews" component={ReviewsScreen} />
-      <Drawer.Screen name="Activity" component={ActivityScreen} />
-      <Drawer.Screen name="Settings" component={SettingsScreen} />
+
+      <Drawer.Screen
+        name="Search"
+        options={{
+          drawerIcon: ({ color, size }) => (
+            <Icon name="search-outline" color={color} size={size} />
+          ),
+        }}
+      >
+        {(props) => <SearchScreen {...props} token={token} />}
+      </Drawer.Screen>
+
+      <Drawer.Screen
+        name="Profile"
+        options={{
+          drawerIcon: ({ color, size }) => (
+            <Icon name="person-outline" color={color} size={size} />
+          ),
+        }}
+      >
+        {(props) => <ProfileScreen {...props} token={token} />}
+      </Drawer.Screen>
+
+      <Drawer.Screen
+        name="Reviews"
+        options={{
+          drawerIcon: ({ color, size }) => (
+            <Icon name="star-outline" color={color} size={size} />
+          ),
+        }}
+      >
+        {(props) => <ReviewsScreen {...props} token={token} />}
+      </Drawer.Screen>
+
+      <Drawer.Screen
+        name="Activity"
+        options={{
+          drawerIcon: ({ color, size }) => (
+            <Icon name="time-outline" color={color} size={size} />
+          ),
+        }}
+      >
+        {(props) => <ActivityScreen {...props} token={token} />}
+      </Drawer.Screen>
+
+      <Drawer.Screen
+        name="Settings"
+        options={{
+          drawerIcon: ({ color, size }) => (
+            <Icon name="settings-outline" color={color} size={size} />
+          ),
+        }}
+      >
+        {(props) => <SettingsScreen {...props} token={token} />}
+      </Drawer.Screen>
     </Drawer.Navigator>
   );
 }
@@ -110,7 +160,6 @@ export default function App() {
             headerTintColor: "#fff",
           })}
         />
-        {/* Playlist Screen added here */}
         <Stack.Screen
           name="Playlist"
           component={PlaylistScreen}
