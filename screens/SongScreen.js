@@ -6,6 +6,7 @@ import {
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Icon from "react-native-vector-icons/FontAwesome5";
+import { Audio } from "expo-av";
 import { auth, db } from "../firebase";
 import { onAuthStateChanged } from "firebase/auth";
 import { doc, setDoc, getDoc, collection, getDocs } from "firebase/firestore";
@@ -29,6 +30,12 @@ export default function SongScreen({ route, navigation }) {
   const [lyricsError, setLyricsError] = useState("");
   const [lyricsExpanded, setLyricsExpanded] = useState(false);
 
+  // Deezer preview state
+  const [previewUrl, setPreviewUrl] = useState(null);
+  const [sound, setSound] = useState(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const playScale = useRef(new Animated.Value(1)).current;
+
   // --- Firebase auth ---
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, u => setUser(u));
@@ -48,66 +55,6 @@ export default function SongScreen({ route, navigation }) {
     loadToken();
   }, [routeToken]);
 
-  // --- Fetch Spotify song details ---
-  const fetchSong = async (accessToken) => {
-    if (!songId || !accessToken) { setLoading(false); return; }
-    setLoading(true);
-    try {
-      const res = await fetch(`https://api.spotify.com/v1/tracks/${songId}`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      const data = await res.json();
-      if (!data.error) {
-        setSong({
-          ...data,
-          album: { ...data.album, images: Array.isArray(data.album?.images) ? data.album.images : [] },
-          artists: Array.isArray(data.artists) ? data.artists : [],
-        });
-      } else setSong(null);
-    } catch { setSong(null); }
-    finally { setLoading(false); }
-  };
-  useEffect(() => { if (token) fetchSong(token); }, [songId, token]);
-
-  // --- Fetch lyrics ---
-  useEffect(() => {
-    if (song?.artists?.[0]?.name && song?.name) {
-      const fetchLyrics = async () => {
-        setLoadingLyrics(true);
-        setLyricsError("");
-        setLyrics("");
-        try {
-          const res = await fetch(
-            `https://api.lyrics.ovh/v1/${encodeURIComponent(song.artists[0].name)}/${encodeURIComponent(song.name)}`
-          );
-          const text = await res.text();
-          try {
-            const data = JSON.parse(text);
-            if (data.lyrics) setLyrics(data.lyrics);
-            else throw new Error();
-          } catch {
-            throw new Error("Lyrics.ovh returned non-JSON");
-          }
-        } catch {
-          setLyrics(`Lyrics not found. View on Genius: ${song.name} - ${song.artists[0].name}`);
-          setLyricsError("genius");
-        } finally { setLoadingLyrics(false); }
-      };
-      fetchLyrics();
-    }
-  }, [song]);
-
-  // --- Load user's rating ---
-  useEffect(() => {
-    if (!user || !songId) return;
-    const loadRating = async () => {
-      const docRef = doc(db, "songRatings", songId, "ratings", user.uid);
-      const docSnap = await getDoc(docRef);
-      if (docSnap.exists()) setRating(docSnap.data().rating || 0);
-    };
-    loadRating();
-  }, [user, songId]);
-
   // --- Save user's rating ---
   const saveRating = async (value) => {
     if (!user) return;
@@ -118,7 +65,7 @@ export default function SongScreen({ route, navigation }) {
         userId: user.uid,
         createdAt: new Date()
       });
-      loadGlobalRating(); // refresh bars
+      loadGlobalRating();
     } catch (err) { console.error(err); }
   };
 
@@ -143,7 +90,6 @@ export default function SongScreen({ route, navigation }) {
       });
 
       setGlobalRating(count ? sum / count : 0);
-
       setGlobalBreakdown(breakdown);
 
       Object.keys(breakdown).forEach(key => {
@@ -158,6 +104,109 @@ export default function SongScreen({ route, navigation }) {
     } catch (err) { console.error(err); }
   };
   useEffect(() => { loadGlobalRating(); }, [songId]);
+
+  // --- Fetch Spotify song details ---
+  const fetchSong = async (accessToken) => {
+    if (!songId || !accessToken) { setLoading(false); return; }
+    setLoading(true);
+    try {
+      const res = await fetch(`https://api.spotify.com/v1/tracks/${songId}`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const data = await res.json();
+      if (!data.error) {
+        setSong({
+          ...data,
+          album: { ...data.album, images: Array.isArray(data.album?.images) ? data.album.images : [] },
+          artists: Array.isArray(data.artists) ? data.artists : [],
+        });
+      } else setSong(null);
+    } catch { setSong(null); }
+    finally { setLoading(false); }
+  };
+  useEffect(() => { if (token) fetchSong(token); }, [songId, token]);
+
+  // --- Fetch Deezer preview ---
+  const fetchPreview = async (title, artist) => {
+    try {
+      const res = await fetch(
+        `https://api.deezer.com/search?q=track:"${encodeURIComponent(title)}" artist:"${encodeURIComponent(artist)}"`
+      );
+      const data = await res.json();
+      if (data?.data?.length > 0) setPreviewUrl(data.data[0].preview);
+    } catch (err) { console.error("Failed to fetch Deezer preview", err); }
+  };
+  useEffect(() => { if (song?.name && song?.artists?.[0]?.name) fetchPreview(song.name, song.artists[0].name); }, [song]);
+
+  // --- Toggle play Deezer preview ---
+  const togglePlayPreview = async () => {
+    if (!previewUrl) return;
+
+    Animated.sequence([
+      Animated.timing(playScale, { toValue: 1.2, duration: 100, useNativeDriver: true }),
+      Animated.timing(playScale, { toValue: 1, duration: 100, useNativeDriver: true })
+    ]).start();
+
+    if (isPlaying) {
+      await sound.stopAsync();
+      await sound.unloadAsync();
+      setSound(null);
+      setIsPlaying(false);
+    } else {
+      const { sound: newSound } = await Audio.Sound.createAsync(
+        { uri: previewUrl },
+        { shouldPlay: true }
+      );
+      setSound(newSound);
+      setIsPlaying(true);
+
+      newSound.setOnPlaybackStatusUpdate((status) => {
+        if (status.didJustFinish) {
+          setIsPlaying(false);
+          newSound.unloadAsync();
+          setSound(null);
+        }
+      });
+    }
+  };
+  useEffect(() => { return sound ? () => { sound.unloadAsync(); } : undefined; }, [sound]);
+
+  // --- Fetch lyrics ---
+  useEffect(() => {
+    if (song?.artists?.[0]?.name && song?.name) {
+      const fetchLyrics = async () => {
+        setLoadingLyrics(true);
+        setLyricsError("");
+        setLyrics("");
+        try {
+          const res = await fetch(
+            `https://api.lyrics.ovh/v1/${encodeURIComponent(song.artists[0].name)}/${encodeURIComponent(song.name)}`
+          );
+          const text = await res.text();
+          try {
+            const data = JSON.parse(text);
+            if (data.lyrics) setLyrics(data.lyrics);
+            else throw new Error();
+          } catch { throw new Error("Lyrics.ovh returned non-JSON"); }
+        } catch {
+          setLyrics(`Lyrics not found. View on Genius: ${song.name} - ${song.artists[0].name}`);
+          setLyricsError("genius");
+        } finally { setLoadingLyrics(false); }
+      };
+      fetchLyrics();
+    }
+  }, [song]);
+
+  // --- Load user's rating ---
+  useEffect(() => {
+    if (!user || !songId) return;
+    const loadRating = async () => {
+      const docRef = doc(db, "songRatings", songId, "ratings", user.uid);
+      const docSnap = await getDoc(docRef);
+      if (docSnap.exists()) setRating(docSnap.data().rating || 0);
+    };
+    loadRating();
+  }, [user, songId]);
 
   const renderStars = (ratingValue, onPress, size=32) => (
     <View style={{ flexDirection: "row" }}>
@@ -198,9 +247,16 @@ export default function SongScreen({ route, navigation }) {
 
   return (
     <ScrollView style={styles.container}>
-      {/* Song Info */}
+      {/* Song Info with album cover as preview button */}
       <View style={styles.topRow}>
-        <Image source={{ uri: song.album?.images?.[1]?.url || song.album?.images?.[0]?.url }} style={styles.cover} />
+        <Pressable onPress={togglePlayPreview}>
+          <Image source={{ uri: song.album?.images?.[1]?.url || song.album?.images?.[0]?.url }} style={styles.cover} />
+          {previewUrl && (
+            <Animated.View style={[styles.playOverlay, { transform:[{ scale: playScale }] }]}>
+              <Icon name={isPlaying ? "pause" : "play"} size={32} color="#fff" />
+            </Animated.View>
+          )}
+        </Pressable>
         <View style={styles.songInfo}>
           <Text style={styles.title}>{song.name}</Text>
           <TouchableOpacity onPress={() => song.artists?.[0]?.id && navigation.navigate("Artist", { artistId: song.artists[0].id, token })}>
@@ -215,17 +271,25 @@ export default function SongScreen({ route, navigation }) {
         </View>
       </View>
 
-      {/* Spotify Link */}
-      <TouchableOpacity style={styles.spotifyButton} onPress={() => Linking.openURL(song.external_urls?.spotify).catch(console.error)}>
-        <Icon name="spotify" size={28} color="#fff" />
-        <Text style={styles.buttonText}>Open in Spotify</Text>
-      </TouchableOpacity>
+      {/* Spotify Button + Your Rating side by side */}
+      <View style={{ flexDirection: "row", alignItems: "center", marginTop: 16 }}>
+        
+        {/* Spotify Button */}
+        <TouchableOpacity style={styles.spotifyButton} onPress={() => Linking.openURL(song.external_urls?.spotify).catch(console.error)}>
+          <Icon name="spotify" size={28} color="#fff" />
+          <Text style={styles.buttonText}>Open in Spotify</Text>
+        </TouchableOpacity>
 
-      {/* User rating */}
-      <View style={{ marginTop:16 }}>
-        <Text style={{ color:"#fff", marginBottom:4 }}>Your Rating:</Text>
-        {renderStars(rating, saveRating)}
+        {/* Spacer */}
+        <View style={{ width: 16 }} />
+
+        {/* Your Rating */}
+        <View>
+          <Text style={{ color:"#fff", marginBottom:4 }}>Your Rating:</Text>
+          {renderStars(rating, saveRating, 28)}
+        </View>
       </View>
+
 
       {/* Global rating */}
       <View style={{ marginTop:16 }}>
@@ -240,7 +304,6 @@ export default function SongScreen({ route, navigation }) {
               }) || 0;
               return (
                 <View key={key} style={{ marginHorizontal:1, width:12, backgroundColor:"#333", borderRadius:3 }}>
-                  {/* Filled portion */}
                   <Animated.View style={{ width:"100%", height:animatedHeight, backgroundColor:"#888", borderRadius:3 }} />
                 </View>
               )
@@ -249,7 +312,6 @@ export default function SongScreen({ route, navigation }) {
           <Text style={{ color:"#fff", fontSize:24, fontWeight:"bold", marginLeft:12 }}>{globalRating.toFixed(1)}</Text>
         </View>
       </View>
-
 
       {/* Lyrics */}
       <View style={styles.lyricsContainer}>
@@ -287,13 +349,25 @@ const styles = StyleSheet.create({
   container:{ flex:1, backgroundColor:"#121212", padding:16 },
   topRow:{ flexDirection:"row", marginBottom:16 },
   cover:{ width:180, height:180, borderRadius:12, borderWidth:1, borderColor:"#333" },
+  playOverlay: {
+  position: "absolute",
+  top: 0,
+  left: 0,
+  width: 180,       // same as cover width
+  height: 180,      // same as cover height
+  backgroundColor: "rgba(0,0,0,0.25)", // semi-transparent overlay
+  borderRadius: 12,
+  justifyContent: "center",
+  alignItems: "center"
+},
+
   songInfo:{ flex:1, marginLeft:16, justifyContent:"center" },
   title:{ color:"#fff", fontSize:22, fontWeight:"bold", marginBottom:4 },
   artist:{ color:"#1db954", fontSize:18, marginBottom:4 },
   album:{ color:"#1db954", fontSize:16, marginBottom:4 },
   detail:{ color:"#ccc", fontSize:14, marginBottom:2 },
-  spotifyButton:{ flexDirection:"row", alignItems:"center", backgroundColor:"#1db954", paddingVertical:8, paddingHorizontal:12, borderRadius:8, marginTop:12 },
-  buttonText:{ color:"#fff", fontWeight:"bold", marginLeft:8 },
+  spotifyButton: { flexDirection: "row", alignItems: "center", backgroundColor: "#1db954", paddingVertical: 6, paddingHorizontal: 20, borderRadius: 8,},
+  buttonText: { color:"#fff", fontWeight:"bold", marginLeft:6 },
   lyricsContainer:{ marginTop:20, padding:12, backgroundColor:"#222", borderRadius:8 },
   lyricsTitle:{ color:"#fff", fontSize:18, fontWeight:"bold", marginBottom:8 },
   lyricsText:{ color:"#ddd", fontSize:14, lineHeight:20 },
