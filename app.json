@@ -1,8 +1,8 @@
 {
   "expo": {
-    "name": "SoundNet",            
-    "slug": "SoundNet",            
-    "scheme": "SoundNet", 
+    "name": "SoundNet",
+    "slug": "SoundNet",
+    "scheme": "SoundNet",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -14,7 +14,7 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "bundleIdentifier": "com.yourname.soundnet", 
+      "bundleIdentifier": "com.yourname.soundnet",
       "supportsTablet": true
     },
     "android": {
@@ -29,7 +29,8 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "expo-web-browser"
+      "expo-web-browser",
+      "expo-audio"
     ]
   }
 }
