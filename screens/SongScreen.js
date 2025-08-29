@@ -8,7 +8,7 @@ import Icon from "react-native-vector-icons/FontAwesome5";
 import { Audio } from "expo-av";
 import { auth, db } from "../firebase";
 import { onAuthStateChanged } from "firebase/auth";
-import { doc, setDoc, collection, onSnapshot, deleteDoc } from "firebase/firestore";
+import { doc, setDoc, getDoc, collection, onSnapshot, deleteDoc } from "firebase/firestore";
 
 const screenWidth = Dimensions.get("window").width;
 
@@ -19,6 +19,7 @@ export default function SongScreen({ route, navigation }) {
   const [rating, setRating] = useState(0);
   const [token, setToken] = useState(routeToken || null);
   const [user, setUser] = useState(null);
+  const [username, setUsername] = useState("Anonymous");
 
   const [globalRating, setGlobalRating] = useState(0);
   const [globalBreakdown, setGlobalBreakdown] = useState({});
@@ -41,9 +42,24 @@ export default function SongScreen({ route, navigation }) {
   const [reviews, setReviews] = useState([]);
   const [userReviewId, setUserReviewId] = useState(null);
 
-  // --- Firebase auth ---
+  // --- Firebase auth & username ---
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, u => setUser(u));
+    const unsubscribe = onAuthStateChanged(auth, u => {
+      setUser(u);
+      setUsername("Anonymous");
+
+      if (u) {
+        const fetchUsername = async () => {
+          try {
+            const userDoc = await getDoc(doc(db, "users", u.uid));
+            if (userDoc.exists()) setUsername(userDoc.data()?.username || "Anonymous");
+          } catch (err) {
+            console.error("Failed to fetch username:", err);
+          }
+        };
+        fetchUsername();
+      }
+    });
     return unsubscribe;
   }, []);
 
@@ -53,10 +69,8 @@ export default function SongScreen({ route, navigation }) {
   const saveRating = async (value) => {
     if (!user) return;
 
-    // Open modal on star click
     setReviewRating(value);
 
-    // Check if user already has a review
     const existingReview = reviews.find(r => r.userId === user.uid);
     if (existingReview) {
       setReviewText(existingReview.text || "");
@@ -145,7 +159,6 @@ export default function SongScreen({ route, navigation }) {
     fetchPreview();
   }, [song]);
 
-  // --- Deezer toggle play ---
   const togglePlayPreview = async () => {
     if (!previewUrl) return;
 
@@ -234,7 +247,7 @@ export default function SongScreen({ route, navigation }) {
 
       await setDoc(reviewRef, {
         userId: user.uid,
-        displayName: user.displayName || "Anonymous",
+        displayName: username,
         rating: reviewRating,
         text: reviewText,
         createdAt: new Date()
@@ -408,9 +421,9 @@ export default function SongScreen({ route, navigation }) {
           <View style={{ backgroundColor:"#121212", borderRadius:12, padding:16 }}>
             <Text style={{ color:"#fff", fontSize:18, fontWeight:"bold", marginBottom:12 }}>Your Review</Text>
 
-            {/* Spotify nickname */}
+            {/* Firebase username */}
             <Text style={{ color:"#1db954", fontWeight:"bold", marginBottom:8 }}>
-              {user?.displayName || "Anonymous"}
+              {username}
             </Text>
 
             <Text style={{ color:"#fff", marginBottom:4 }}>Rating:</Text>

@@ -12,7 +12,9 @@ import {
   TextInput,
   FlatList,
   Image,
+  Alert,
 } from "react-native";
+import * as ImagePicker from "expo-image-picker";
 import { auth, db } from "../firebase";
 import {
   doc,
@@ -24,6 +26,7 @@ import {
   limit,
   getDocs,
 } from "firebase/firestore";
+import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
 
 export default function ProfileScreen({ token }) {
   const [loading, setLoading] = useState(true);
@@ -38,6 +41,7 @@ export default function ProfileScreen({ token }) {
   const [selectionType, setSelectionType] = useState("track"); // "track" or "album"
 
   const favoriteSlots = 5;
+  const storage = getStorage();
 
   useEffect(() => {
     const fetchProfileAndReviews = async () => {
@@ -50,17 +54,30 @@ export default function ProfileScreen({ token }) {
         const uid = auth.currentUser.uid;
         const userRef = doc(db, "users", uid);
         const userSnap = await getDoc(userRef);
+
         if (!userSnap.exists()) {
           setError("Profile not found.");
+          setLoading(false);
           return;
         }
+
         const profileData = userSnap.data();
 
-        // Fetch last 10 reviews from a subcollection "reviews"
-        const reviewsRef = collection(db, "users", uid, "reviews");
-        const reviewsQuery = query(reviewsRef, orderBy("createdAt", "desc"), limit(10));
-        const reviewsSnap = await getDocs(reviewsQuery);
-        const recentReviews = reviewsSnap.docs.map(doc => doc.data());
+        // Safe fetch reviews with try/catch
+        let recentReviews = [];
+        try {
+          const reviewsRef = collection(db, "users", uid, "reviews");
+          const reviewsQuery = query(
+            reviewsRef,
+            orderBy("createdAt", "desc"),
+            limit(10)
+          );
+          const reviewsSnap = await getDocs(reviewsQuery);
+          recentReviews = reviewsSnap.docs.map((doc) => doc.data());
+        } catch (err) {
+          console.warn("Could not fetch reviews (permissions?):", err.message);
+          recentReviews = [];
+        }
 
         setProfile({ ...profileData, recentReviews });
       } catch (err) {
@@ -70,9 +87,50 @@ export default function ProfileScreen({ token }) {
         setLoading(false);
       }
     };
+
     fetchProfileAndReviews();
   }, []);
 
+  // Pick image and upload
+  const pickImage = async () => {
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 1,
+      });
+
+      if (!result.canceled) {
+        const asset = result.assets[0];
+        await uploadImage(asset.uri);
+      }
+    } catch (error) {
+      console.error("Error picking image:", error);
+      Alert.alert("Upload Failed", "Could not upload profile picture.");
+    }
+  };
+
+  const uploadImage = async (uri) => {
+    try {
+      setUpdating(true);
+      const uid = auth.currentUser.uid;
+      const response = await fetch(uri);
+      const blob = await response.blob();
+      const imageRef = ref(storage, `profilePictures/${uid}.jpg`);
+      await uploadBytes(imageRef, blob);
+      const downloadURL = await getDownloadURL(imageRef);
+      await updateDoc(doc(db, "users", uid), { profilePic: downloadURL });
+      setProfile((prev) => ({ ...prev, profilePic: downloadURL }));
+    } catch (err) {
+      console.error("Error uploading image:", err);
+      Alert.alert("Upload Failed", "Could not upload profile picture.");
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  // Spotify search
   const handleSearch = async (query) => {
     if (!query.trim() || !token) {
       setSearchResults([]);
@@ -88,7 +146,9 @@ export default function ProfileScreen({ token }) {
       );
       const data = await res.json();
       setSearchResults(
-        selectionType === "track" ? data.tracks?.items || [] : data.albums?.items || []
+        selectionType === "track"
+          ? data.tracks?.items || []
+          : data.albums?.items || []
       );
     } catch (err) {
       console.error("Spotify search failed:", err);
@@ -98,6 +158,7 @@ export default function ProfileScreen({ token }) {
     }
   };
 
+  // Update favorites/albums
   const selectItemForSlot = async (item) => {
     if (!profile || activeSlot === null) return;
 
@@ -107,31 +168,32 @@ export default function ProfileScreen({ token }) {
 
       if (selectionType === "track") {
         const favorites = profile.favorites || Array(favoriteSlots).fill(null);
-        const newFavorites = [...favorites];
-        newFavorites[activeSlot] = {
+        favorites[activeSlot] = {
           id: item.id,
           title: item.name,
-          artist: item.artists?.map(a => a.name).join(", "),
+          artist: item.artists?.map((a) => a.name).join(", "),
           imageUrl: item.album?.images?.[0]?.url || null,
         };
-        setProfile({ ...profile, favorites: newFavorites });
-        const userRef = doc(db, "users", uid);
-        await updateDoc(userRef, { favorites: newFavorites.map(f => f || null) });
+        setProfile({ ...profile, favorites });
+        await updateDoc(doc(db, "users", uid), {
+          favorites: favorites.map((f) => f || null),
+        });
       } else {
         const albums = profile.albums || Array(favoriteSlots).fill(null);
-        const newAlbums = [...albums];
-        newAlbums[activeSlot] = {
+        albums[activeSlot] = {
           id: item.id,
           title: item.name,
-          artist: item.artists?.map(a => a.name).join(", "),
+          artist: item.artists?.map((a) => a.name).join(", "),
           imageUrl: item.images?.[0]?.url || null,
         };
-        setProfile({ ...profile, albums: newAlbums });
-        const userRef = doc(db, "users", uid);
-        await updateDoc(userRef, { albums: newAlbums.map(a => a || null) });
+        setProfile({ ...profile, albums });
+        await updateDoc(doc(db, "users", uid), {
+          albums: albums.map((a) => a || null),
+        });
       }
     } catch (err) {
       console.error("Failed to update favorites:", err);
+      Alert.alert("Update Failed", "Could not update favorites.");
     } finally {
       setUpdating(false);
       setModalVisible(false);
@@ -148,7 +210,29 @@ export default function ProfileScreen({ token }) {
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#121212" />
       <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
-        <Text style={styles.title}>Profile</Text>
+        {/* Profile Picture */}
+        <View style={{ alignItems: "center", marginBottom: 20 }}>
+          <TouchableOpacity onPress={pickImage} disabled={updating}>
+            {profile?.profilePic ? (
+              <Image
+                source={{ uri: profile.profilePic }}
+                style={styles.profilePic}
+              />
+            ) : (
+              <View
+                style={[
+                  styles.profilePic,
+                  { backgroundColor: "#333", justifyContent: "center", alignItems: "center" },
+                ]}
+              >
+                <Text style={{ color: "#fff", fontSize: 40, fontWeight: "bold" }}>
+                  {profile?.username?.charAt(0)?.toUpperCase() || "?"}
+                </Text>
+              </View>
+            )}
+          </TouchableOpacity>
+          <Text style={{ color: "#888", marginTop: 8 }}>Tap to change profile picture</Text>
+        </View>
 
         {/* Basic Info */}
         <View style={styles.infoBox}>
@@ -161,95 +245,51 @@ export default function ProfileScreen({ token }) {
         </View>
 
         {/* Favorite Songs */}
-        <View style={{ marginTop: 24 }}>
-          <Text style={styles.sectionTitle}>Favorite Songs</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 12 }}>
-            {Array.from({ length: favoriteSlots }).map((_, idx) => {
-              const song = profile.favorites?.[idx] || null;
-              return (
-                <TouchableOpacity
-                  key={idx}
-                  style={styles.trackCard}
-                  onPress={() => {
-                    setActiveSlot(idx);
-                    setSelectionType("track");
-                    setModalVisible(true);
-                  }}
-                >
-                  {song ? (
-                    <>
-                      {song.imageUrl && <Image source={{ uri: song.imageUrl }} style={styles.trackImage} />}
-                      <Text style={styles.trackTitle} numberOfLines={1}>{song.title}</Text>
-                      <Text style={styles.trackArtist} numberOfLines={1}>{song.artist}</Text>
-                    </>
-                  ) : (
-                    <View style={styles.emptyTrack}>
-                      <Text style={{ color: "#888", fontSize: 32 }}>+</Text>
-                    </View>
-                  )}
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
-        </View>
+        <SectionFavorites
+          title="Favorite Songs"
+          items={profile.favorites}
+          type="track"
+          onSelect={(idx) => { setActiveSlot(idx); setSelectionType("track"); setModalVisible(true); }}
+        />
 
         {/* Favorite Albums */}
-        <View style={{ marginTop: 24 }}>
-          <Text style={styles.sectionTitle}>Favorite Albums</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 12 }}>
-            {Array.from({ length: favoriteSlots }).map((_, idx) => {
-              const album = profile.albums?.[idx] || null;
-              return (
-                <TouchableOpacity
-                  key={idx}
-                  style={styles.trackCard}
-                  onPress={() => {
-                    setActiveSlot(idx);
-                    setSelectionType("album");
-                    setModalVisible(true);
-                  }}
-                >
-                  {album ? (
-                    <>
-                      {album.imageUrl && <Image source={{ uri: album.imageUrl }} style={styles.trackImage} />}
-                      <Text style={styles.trackTitle} numberOfLines={1}>{album.title}</Text>
-                      <Text style={styles.trackArtist} numberOfLines={1}>{album.artist}</Text>
-                    </>
-                  ) : (
-                    <View style={styles.emptyTrack}>
-                      <Text style={{ color: "#888", fontSize: 32 }}>+</Text>
-                    </View>
-                  )}
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
-        </View>
+        <SectionFavorites
+          title="Favorite Albums"
+          items={profile.albums}
+          type="album"
+          onSelect={(idx) => { setActiveSlot(idx); setSelectionType("album"); setModalVisible(true); }}
+        />
 
         {/* Last 10 Reviews */}
-        {profile.recentReviews?.length > 0 && (
-          <View style={{ marginTop: 24 }}>
-            <Text style={styles.sectionTitle}>Last 10 Reviews</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 12 }}>
-              {profile.recentReviews.map((review, idx) => (
-                <View key={idx} style={[styles.trackCard, { width: 200 }]}>
-                  <Text style={styles.trackTitle} numberOfLines={1}>{review.displayName || "Anonymous"}</Text>
-                  <Text style={styles.trackArtist} numberOfLines={2}>{review.text}</Text>
-                  <Text style={{ color: "#1DB954", marginTop: 4 }}>Rating: {review.rating || "N/A"}</Text>
-                  {review.createdAt?.toDate && (
-                    <Text style={{ color: "#888", fontSize: 12 }}>
-                      {review.createdAt.toDate().toLocaleString()}
-                    </Text>
-                  )}
-                </View>
-              ))}
+        <View style={{ marginTop: 24 }}>
+          <Text style={styles.sectionTitle}>Last 10 Reviews</Text>
+          {profile.recentReviews?.length > 0 ? (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 8 }} style={{ marginTop: 12 }}>
+              {profile.recentReviews.map((review, idx) => {
+                let reviewDate = new Date();
+                if (review.createdAt) {
+                  reviewDate =
+                    typeof review.createdAt.toDate === "function"
+                      ? review.createdAt.toDate()
+                      : new Date(review.createdAt);
+                }
+                return (
+                  <View key={idx} style={[styles.trackCard, { width: 220, padding: 12 }]}>
+                    <Text style={styles.trackTitle} numberOfLines={1}>{review.displayName || "Anonymous"}</Text>
+                    <Text style={styles.trackArtist} numberOfLines={3}>{review.text || "No review text"}</Text>
+                    <Text style={{ color: "#1DB954", marginTop: 4 }}>Rating: {review.rating ?? "N/A"}</Text>
+                    <Text style={{ color: "#888", fontSize: 12, marginTop: 2 }}>{reviewDate.toLocaleString()}</Text>
+                  </View>
+                );
+              })}
             </ScrollView>
-          </View>
-        )}
-
+          ) : (
+            <Text style={{ color: "#888", marginTop: 8, textAlign: "center" }}>No reviews yet.</Text>
+          )}
+        </View>
       </ScrollView>
 
-      {/* Modal for searching tracks or albums */}
+      {/* Modal for searching tracks/albums */}
       <Modal visible={modalVisible} animationType="slide">
         <SafeAreaView style={{ flex: 1, backgroundColor: "#121212", padding: 16 }}>
           <View style={{ flexDirection: "row", justifyContent: "space-around", marginBottom: 12 }}>
@@ -266,10 +306,7 @@ export default function ProfileScreen({ token }) {
             placeholderTextColor="#888"
             style={styles.searchInput}
             value={searchText}
-            onChangeText={(text) => {
-              setSearchText(text);
-              handleSearch(text);
-            }}
+            onChangeText={(text) => { setSearchText(text); handleSearch(text); }}
           />
 
           {searchLoading ? (
@@ -287,15 +324,10 @@ export default function ProfileScreen({ token }) {
                   disabled={updating}
                 >
                   {item.images?.[0]?.url || item.album?.images?.[0]?.url ? (
-                    <Image
-                      source={{ uri: item.images?.[0]?.url || item.album?.images?.[0]?.url }}
-                      style={{ width: "100%", height: 100, borderRadius: 8, marginBottom: 4 }}
-                    />
+                    <Image source={{ uri: item.images?.[0]?.url || item.album?.images?.[0]?.url }} style={{ width: "100%", height: 100, borderRadius: 8, marginBottom: 4 }} />
                   ) : null}
                   <Text style={styles.songTitle} numberOfLines={1}>{item.name}</Text>
-                  <Text style={styles.songArtist} numberOfLines={1}>
-                    {item.artists?.map(a => a.name).join(", ")}
-                  </Text>
+                  <Text style={styles.songArtist} numberOfLines={1}>{item.artists?.map((a) => a.name).join(", ")}</Text>
                 </TouchableOpacity>
               )}
             />
@@ -307,6 +339,38 @@ export default function ProfileScreen({ token }) {
         </SafeAreaView>
       </Modal>
     </SafeAreaView>
+  );
+}
+
+// Component for favorite tracks/albums
+function SectionFavorites({ title, items = [], type, onSelect }) {
+  const favoriteSlots = 5;
+  return (
+    <View style={{ marginTop: 24 }}>
+      <Text style={styles.sectionTitle}>{title}</Text>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 12 }}>
+        {Array.from({ length: favoriteSlots }).map((_, idx) => {
+          const item = items?.[idx] || null;
+          return (
+            <TouchableOpacity
+              key={idx}
+              style={styles.trackCard}
+              onPress={() => onSelect(idx)}
+            >
+              {item ? (
+                <>
+                  {item.imageUrl && <Image source={{ uri: item.imageUrl }} style={styles.trackImage} />}
+                  <Text style={styles.trackTitle} numberOfLines={1}>{item.title}</Text>
+                  <Text style={styles.trackArtist} numberOfLines={1}>{item.artist}</Text>
+                </>
+              ) : (
+                <View style={styles.emptyTrack}><Text style={{ color: "#888", fontSize: 32 }}>+</Text></View>
+              )}
+            </TouchableOpacity>
+          );
+        })}
+      </ScrollView>
+    </View>
   );
 }
 
@@ -342,10 +406,10 @@ const styles = StyleSheet.create({
   searchInput: { backgroundColor: "#222", color: "#fff", padding: 12, borderRadius: 8, marginBottom: 12, fontSize: 16 },
   button: { backgroundColor: "#1DB954", padding: 14, borderRadius: 8 },
   buttonText: { color: "#fff", fontSize: 18, fontWeight: "bold", textAlign: "center" },
-
   trackCard: { width: 140, marginRight: 12, borderRadius: 8, backgroundColor: "#222", padding: 8, alignItems: "center" },
   trackImage: { width: "100%", height: 100, borderRadius: 8, marginBottom: 8 },
   trackTitle: { color: "#fff", fontSize: 14, fontWeight: "bold" },
   trackArtist: { color: "#888", fontSize: 12 },
   emptyTrack: { width: "100%", height: 100, borderRadius: 8, borderWidth: 1, borderColor: "#444", justifyContent: "center", alignItems: "center", marginBottom: 8 },
+  profilePic: { width: 140, height: 140, borderRadius: 70, borderWidth: 3, borderColor: "#818181ff" },
 });
