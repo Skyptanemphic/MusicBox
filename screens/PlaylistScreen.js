@@ -1,18 +1,18 @@
 import React, { useEffect, useState } from "react";
-import { 
-  View, 
-  Text, 
-  FlatList, 
-  TouchableOpacity, 
-  ActivityIndicator, 
-  Image, 
-  StyleSheet, 
-  Dimensions 
+import {
+  View,
+  Text,
+  FlatList,
+  TouchableOpacity,
+  ActivityIndicator,
+  Image,
+  StyleSheet,
+  Dimensions,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const { width: screenWidth } = Dimensions.get("window");
-const cardWidth = Math.round(screenWidth * 0.45);
-const cardHeight = Math.round(cardWidth * 1.4);
+const cardWidth = Math.floor(screenWidth / 3) - 16; // 👈 3 columns with spacing
 
 export default function PlaylistScreen({ route, navigation }) {
   const { playlistId, token } = route.params;
@@ -20,6 +20,7 @@ export default function PlaylistScreen({ route, navigation }) {
   const [playlistName, setPlaylistName] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const insets = useSafeAreaInsets();
 
   useEffect(() => {
     if (!playlistId || !token) return;
@@ -27,9 +28,10 @@ export default function PlaylistScreen({ route, navigation }) {
     const fetchPlaylist = async () => {
       try {
         // Fetch playlist details
-        const playlistRes = await fetch(`https://api.spotify.com/v1/playlists/${playlistId}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const playlistRes = await fetch(
+          `https://api.spotify.com/v1/playlists/${playlistId}`,
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
         const playlistData = await playlistRes.json();
 
         if (playlistData.error) {
@@ -41,21 +43,24 @@ export default function PlaylistScreen({ route, navigation }) {
           navigation.setOptions({ title: playlistData.name || "Playlist" });
         }
 
-        // Fetch tracks
-        const tracksRes = await fetch(`https://api.spotify.com/v1/playlists/${playlistId}/tracks`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        // Fetch playlist tracks
+        const tracksRes = await fetch(
+          `https://api.spotify.com/v1/playlists/${playlistId}/tracks`,
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
         const tracksData = await tracksRes.json();
 
         if (tracksData.error) {
           console.warn("Error fetching playlist tracks:", tracksData.error);
           setError("Failed to load tracks.");
         } else {
-          const validTracks = tracksData.items?.filter(item => item?.track?.album?.images?.length > 0) || [];
+          const validTracks =
+            tracksData.items?.filter(
+              (item) => item?.track?.album?.images?.length > 0
+            ) || [];
           setTracks(validTracks);
           if (!validTracks.length) setError("No tracks found in this playlist.");
         }
-
       } catch (err) {
         console.error("Unexpected error:", err);
         setError("An unexpected error occurred.");
@@ -73,34 +78,48 @@ export default function PlaylistScreen({ route, navigation }) {
 
     return (
       <TouchableOpacity
-        style={[styles.card, { width: cardWidth, height: cardHeight }]}
+        style={styles.card}
         onPress={() => navigation.navigate("Song", { songId: track.id, token })}
       >
-        {imageUrl && (
-          <Image
-            source={{ uri: imageUrl }}
-            style={styles.image}
-          />
-        )}
-        <View style={styles.textContainer}>
-          <Text style={styles.title} numberOfLines={2}>{track.name}</Text>
-          <Text style={styles.artist} numberOfLines={1}>{track.artists?.[0]?.name}</Text>
-        </View>
+        <Image
+          source={{
+            uri: imageUrl || "https://via.placeholder.com/120",
+          }}
+          style={styles.image}
+        />
+        <Text style={styles.title} numberOfLines={1}>
+          {track.name}
+        </Text>
+        <Text style={styles.subtitle} numberOfLines={1}>
+          {track.artists?.map((a) => a.name).join(", ")}
+        </Text>
       </TouchableOpacity>
     );
   };
 
-  if (loading) return <ActivityIndicator style={{ flex: 1 }} size="large" color="#1db954" />;
-  if (error) return <View style={styles.center}><Text style={{ color: "red" }}>{error}</Text></View>;
+  if (loading)
+    return <ActivityIndicator style={{ flex: 1 }} size="large" color="#1db954" />;
+  if (error)
+    return (
+      <View style={styles.center}>
+        <Text style={{ color: "red" }}>{error}</Text>
+      </View>
+    );
 
   return (
     <FlatList
       data={tracks}
       keyExtractor={(item, index) => item?.track?.id || `track-${index}`}
       renderItem={renderItem}
-      numColumns={2}
-      contentContainerStyle={{ padding: 8 }}
-      columnWrapperStyle={{ justifyContent: "space-between", marginBottom: 12 }}
+      numColumns={3} // 👈 now 3 columns
+      contentContainerStyle={{
+        padding: 12,
+        paddingBottom: insets.bottom + 40, // 👈 safe space at bottom
+      }}
+      columnWrapperStyle={{
+        justifyContent: "space-between",
+        marginBottom: 20,
+      }}
       style={{ backgroundColor: "#121212" }}
     />
   );
@@ -108,29 +127,24 @@ export default function PlaylistScreen({ route, navigation }) {
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: "#363333",
-    borderRadius: 8,
-    padding: 8,
+    width: cardWidth,
     alignItems: "center",
   },
   image: {
-    width: "100%",
-    height: cardWidth,
+    width: cardWidth - 10,
+    height: cardWidth - 10,
     borderRadius: 8,
-    marginBottom: 8,
-  },
-  textContainer: {
-    width: "100%",
-    alignItems: "center",
   },
   title: {
     color: "#fff",
+    marginTop: 5,
+    fontSize: 13,
     fontWeight: "bold",
     textAlign: "center",
   },
-  artist: {
+  subtitle: {
     color: "#aaa",
-    fontSize: 12,
+    fontSize: 11,
     textAlign: "center",
   },
   center: {

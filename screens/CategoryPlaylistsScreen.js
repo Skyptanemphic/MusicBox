@@ -11,29 +11,31 @@ import {
   SafeAreaView,
   StatusBar
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const { width: screenWidth } = Dimensions.get('window');
-const cardWidth = Math.round(screenWidth * 0.45);
-const cardHeight = Math.round(cardWidth * 1.2);
+const cardWidth = Math.floor(screenWidth / 2) - 24; // 👈 fits 2 columns with spacing
+const cardHeight = Math.round(cardWidth * 1.25);
 
 export default function CategoryPlaylistsScreen({ route, navigation }) {
   const { categoryId, categoryName, token } = route.params;
   const [playlists, setPlaylists] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const insets = useSafeAreaInsets();
 
   useEffect(() => {
     navigation.setOptions({ title: categoryName || 'Category' });
 
     const fetchPlaylists = async () => {
       try {
-        const res = await fetch(`https://api.spotify.com/v1/browse/categories/${categoryId}/playlists?limit=20`, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
+        const res = await fetch(
+          `https://api.spotify.com/v1/browse/categories/${categoryId}/playlists?limit=20`,
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
         const data = await res.json();
 
         if (data.error || !data.playlists) {
-
           // Fallback: search playlists by category name
           const fallbackRes = await fetch(
             `https://api.spotify.com/v1/search?q=${encodeURIComponent(categoryName)}&type=playlist&limit=20`,
@@ -66,9 +68,7 @@ export default function CategoryPlaylistsScreen({ route, navigation }) {
         style={styles.card} 
         onPress={() => navigation.navigate('Playlist', { playlistId: item.id, token })}
       >
-        {imageUrl && (
-          <Image source={{ uri: imageUrl }} style={styles.image} />
-        )}
+        {imageUrl && <Image source={{ uri: imageUrl }} style={styles.image} />}
         <Text style={styles.title} numberOfLines={2}>{item.name}</Text>
       </TouchableOpacity>
     );
@@ -84,8 +84,11 @@ export default function CategoryPlaylistsScreen({ route, navigation }) {
         data={playlists}
         keyExtractor={(item, index) => item?.id || `playlist-${index}`}
         renderItem={renderItem}
-        numColumns={2}
-        contentContainerStyle={{ padding: 16 }}
+        numColumns={2} // 👈 2-column grid
+        contentContainerStyle={{
+          padding: 16,
+          paddingBottom: insets.bottom + 40, // 👈 safe padding at bottom
+        }}
         columnWrapperStyle={{ justifyContent: 'space-between', marginBottom: 16 }}
       />
     </SafeAreaView>
@@ -98,8 +101,8 @@ const styles = StyleSheet.create({
   card: { 
     width: cardWidth, 
     height: cardHeight, 
-    backgroundColor: '#1e1e1e', 
-    borderRadius: 8, 
+    backgroundColor: 'transparent', 
+    borderRadius: 10, 
     padding: 8, 
     alignItems: 'center' 
   },
@@ -109,5 +112,10 @@ const styles = StyleSheet.create({
     borderRadius: 8, 
     marginBottom: 8 
   },
-  title: { color: '#fff', fontWeight: 'bold', textAlign: 'center' },
+  title: { 
+    color: '#fff', 
+    fontWeight: '600', 
+    fontSize: 14, 
+    textAlign: 'center' 
+  },
 });

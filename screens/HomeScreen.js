@@ -224,20 +224,6 @@ export default function HomeScreen({ navigation, token }) {
             </>
           )}
 
-          {newReleases.length > 0 && (
-            <>
-              <Text style={styles.sectionTitle}>New Releases</Text>
-              <FlatList
-                horizontal
-                data={newReleases}
-                renderItem={({ item }) => renderCard(item, "album")}
-                keyExtractor={(item, index) => `album-${item.id}-${index}`}
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={{ padding: 8 }}
-              />
-            </>
-          )}
-
           {topArtists.length > 0 && (
             <>
               <Text style={styles.sectionTitle}>Top Artists</Text>
@@ -246,6 +232,20 @@ export default function HomeScreen({ navigation, token }) {
                 data={topArtists}
                 renderItem={({ item }) => renderCard(item, "artist")}
                 keyExtractor={(item, index) => `artist-${item.id}-${index}`}
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{ padding: 8 }}
+              />
+            </>
+          )}
+          
+          {newReleases.length > 0 && (
+            <>
+              <Text style={styles.sectionTitle}>New Releases</Text>
+              <FlatList
+                horizontal
+                data={newReleases}
+                renderItem={({ item }) => renderCard(item, "album")}
+                keyExtractor={(item, index) => `album-${item.id}-${index}`}
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={{ padding: 8 }}
               />
@@ -275,13 +275,15 @@ export default function HomeScreen({ navigation, token }) {
                 renderItem={({ item }) => renderCard(item, "playlist")}
                 keyExtractor={(item, index) => `playlist-${item.id}-${index}`}
                 showsHorizontalScrollIndicator={false}
-                contentContainerStyle={{ padding: 8 }}
+                contentContainerStyle={{ padding: 8, paddingBottom: 35 }}
               />
             </>
           )}
         </>
       )}
+      
     </ScrollView>
+    
   );
 }
 
